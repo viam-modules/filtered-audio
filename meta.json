@@ -8,7 +8,7 @@
     {
       "api": "rdk:component:audio_in",
       "model": "viam:filtered-audio:wake-word-filter",
-      "markdown_link": "",
+      "markdown_link": "README.md#model-viamfiltered-audiowake-word-filter",
       "short_description": "filters audio stream based on wake word detection"
     }
   ],

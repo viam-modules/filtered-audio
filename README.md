@@ -46,7 +46,7 @@ The source microphone **must** provide audio in the following format:
 | Requirement | Value | Description |
 |-------------|-------|-------------|
 | **Codec** | PCM16 | 16-bit PCM audio format |
-| **Sample Rate** | 16000 Hz | Required for the default Vosk model |
+| **Sample Rate** | 16000 Hz | Required for Vosk model |
 | **Channels** | 1 (Mono) | Stereo audio is not supported |
 
 **Example configuration for source microphone:**
@@ -61,7 +61,5 @@ The source microphone **must** provide audio in the following format:
   }
 }
 ```
-
-**Note:** The wake-word-filter validates these requirements on startup and raises an error if the source microphone doesn't meet them.
 
 **Recommended Source Microphone:** Use the [`viam:system-audio`](https://app.viam.com/module/viam/system-audio) module, which supports resampling and can output 16 kHz mono PCM16 audio from any system microphone.
