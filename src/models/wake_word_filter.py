@@ -256,9 +256,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                     is_speech_active = False
                     silence_frames = 0
 
-                # Prevent buffer from growing too large
+                # Prevent buffer from growing too large, process when it gets to max size
                 if len(byte_buffer) > MAX_BUFFER_SIZE_BYTES:
-                    self.logger.warning(f"Buffer too large ({len(byte_buffer)} bytes), force checking")
                     async for chunk in self._process_speech_segment(chunk_buffer, byte_buffer):
                         yield chunk
 
