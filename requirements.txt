@@ -1,0 +1,8 @@
+
+viam-sdk==0.63.0
+
+typing-extensions
+webrtcvad
+vosk~=0.3.44
+pydub~=0.25.1
+certifi
