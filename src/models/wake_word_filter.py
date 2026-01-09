@@ -1,5 +1,4 @@
-
-from typing import ClassVar, Mapping, Optional, Sequence, Tuple, cast
+from typing import ClassVar, Mapping, Sequence, Tuple, cast
 import asyncio
 import json
 import os
@@ -47,13 +46,9 @@ class WakeWordFilter(AudioIn, EasyResource):
         model = str(attrs.get("vosk_model", DEFAULT_VOSK_MODEL))
         vad_aggressiveness = int(attrs.get("vad_aggressiveness", DEFAULT_VAD_AGGRESSIVENESS))
 
-        # Validate VAD aggressiveness
-        if not 0 <= vad_aggressiveness <= 3:
-            raise ValueError(f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}")
-
         # Initialize WebRTC VAD
         instance.vad = webrtcvad.Vad(vad_aggressiveness)
-        instance.logger.debug("WebRTC VAD initialized")
+        instance.logger.info(f"WebRTC VAD initialized with aggressiveness: {vad_aggressiveness}")
 
         # Load Vosk model (download if needed)
         data_path = os.getenv("VIAM_MODULE_DATA")
@@ -76,6 +71,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Create thread pool for Vosk processing (non-blocking)
         instance.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vosk")
+        instance.is_shutting_down = False
         instance.logger.debug("Thread pool executor created for Vosk processing")
 
         # Get source microphone
@@ -95,14 +91,14 @@ class WakeWordFilter(AudioIn, EasyResource):
         mic = attrs.get("source_microphone", "")
 
         if mic == "":
-            raise RuntimeError("source_microphone attribute is required")
+            raise ValueError("source_microphone attribute is required")
         if not isinstance(mic, str):
-            raise RuntimeError("source_microphone attribute must be a string")
+            raise ValueError("source_microphone attribute must be a string")
         deps.append(mic)
 
         wake_words = attrs.get("wake_words", [])
         if wake_words == []:
-            raise RuntimeError("wake_words attribute is required")
+            raise ValueError("wake_words attribute is required")
 
         # Validate wake_words are strings
         if isinstance(wake_words, str):
@@ -112,9 +108,15 @@ class WakeWordFilter(AudioIn, EasyResource):
             # List must contain only strings
             for word in wake_words:
                 if not isinstance(word, str):
-                    raise RuntimeError(f"All wake_words must be strings, got {type(word).__name__}")
+                    raise ValueError(f"All wake_words must be strings, got {type(word).__name__}")
         else:
-            raise RuntimeError(f"wake_words must be a string or list of strings, got {type(wake_words).__name__}")
+            raise ValueError(f"wake_words must be a string or list of strings, got {type(wake_words).__name__}")
+
+         # Validate VAD aggressiveness
+        vad_aggressiveness = attrs.get("vad_agressiveness", None)
+        if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
+            print("here")
+            raise ValueError(f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}")
 
         return deps, []
 
@@ -129,18 +131,29 @@ class WakeWordFilter(AudioIn, EasyResource):
         if not chunk_buffer:
             return
 
-        loop = asyncio.get_event_loop()
-        wake_word_detected = await loop.run_in_executor(
-            self.executor,
-            self.check_for_wake_word,
-            bytes(byte_buffer),
-            AUDIO_SAMPLE_RATE_HZ
-        )
+        # Don't process if we're shutting down
+        if self.is_shutting_down:
+            self.logger.debug("Skipping speech processing due to shutdown")
+            return
 
-        if wake_word_detected:
-            self.logger.info(f"Wake word detected! Yielding {len(chunk_buffer)} chunks ({len(byte_buffer)} bytes)")
-            for chunk in chunk_buffer:
-                yield chunk
+        try:
+            loop = asyncio.get_event_loop()
+            wake_word_detected = await loop.run_in_executor(
+                self.executor,
+                self._check_for_wake_word,
+                bytes(byte_buffer),
+                AUDIO_SAMPLE_RATE_HZ
+            )
+
+            if wake_word_detected:
+                self.logger.info(f"Wake word detected! Yielding {len(chunk_buffer)} chunks ({len(byte_buffer)} bytes)")
+                for chunk in chunk_buffer:
+                    yield chunk
+        except RuntimeError as e:
+            if "shutdown" in str(e).lower():
+                self.logger.debug("Executor shutdown during processing, ignoring")
+                return
+            raise
 
     async def get_audio(self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs):
         """
@@ -168,7 +181,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             # Check mic properties
             mic_props = await self.microphone_client.get_properties()
-            self.logger.info(f"Microphone properties - Sample rate: {mic_props.sample_rate_hz} Hz, Channels: {mic_props.num_channels}")
+            self.logger.debug(f"Microphone properties - Sample rate: {mic_props.sample_rate_hz} Hz, Channels: {mic_props.num_channels}")
 
             # Validate sample rate (Vosk models are trained on 16000 Hz)
             if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
@@ -186,7 +199,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                     f"Please configure source microphone for mono audio."
                 )
 
-            # Get audio stream from source microphone
             mic_stream = await self.microphone_client.get_audio(codec, duration_seconds, previous_timestamp_ns)
 
             chunk_buffer = []
@@ -194,9 +206,16 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             is_speech_active = False
             silence_frames = 0
+            speech_frames = 0  # Track how much speech we've heard
             max_silence_frames = 30  # ~1 second of silence to end speech segment
+            min_speech_frames = 10  # Require at least 300ms of speech (~10 frames @ 30ms each)
 
             async for audio_chunk in mic_stream:
+                # Exit stream if shutting down
+                if self.is_shutting_down:
+                    self.logger.info("Stream ending due to shutdown")
+                    break
+
                 audio_data = audio_chunk.audio.audio_data
 
                 if not audio_data:
@@ -205,9 +224,10 @@ class WakeWordFilter(AudioIn, EasyResource):
                 # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
                 # At 16kHz: 30ms = 480 samples = 960 bytes
                 frame_size = 960
-
-                # Track if we should process this batch
                 should_process = False
+
+                # Track if we've added this chunk to the buffer yet
+                chunk_added = False
 
                 # Process audio bytes in 30ms chunks
                 for i in range(0, len(audio_data), frame_size):
@@ -218,7 +238,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                     # Check if frame contains speech
                     try:
-                        # The WebRTC VAD only accepts 16-bit mono PCM audio, sampled at 8000, 16000, or 32000 Hz.
+                        # Note the WebRTC VAD only accepts 16-bit mono PCM audio, sampled at 8000, 16000, or 32000 Hz.
                         #  A frame must be either 10, 20, or 30 ms in duration
                         is_speech = self.vad.is_speech(frame, mic_props.sample_rate_hz)
                     except Exception as e:
@@ -230,31 +250,43 @@ class WakeWordFilter(AudioIn, EasyResource):
                             self.logger.debug("Speech segment started")
                             is_speech_active = True
                         silence_frames = 0
+                        speech_frames += 1
+
+                        # Buffer this speech frame
+                        if not chunk_added:
+                            chunk_buffer.append(audio_chunk)
+                            chunk_added = True
+                        byte_buffer.extend(frame)
                     else:
                         if is_speech_active:
+                            # Buffer silence frames during active speech segment
+                            if not chunk_added:
+                                chunk_buffer.append(audio_chunk)
+                                chunk_added = True
+                            byte_buffer.extend(frame)
+
                             silence_frames += 1
 
                             if silence_frames >= max_silence_frames:
-                                self.logger.debug(f"Speech segment ended ({silence_frames} silent frames)")
                                 should_process = True
                                 break
 
-                # Only buffer during active speech
-                if is_speech_active:
-                    chunk_buffer.append(audio_chunk)
-                    byte_buffer.extend(audio_data)
-
                 # If speech segment ended, check for wake word
                 if should_process:
-                    self.logger.debug(f"Speech segment ended, checking {len(byte_buffer)} bytes")
-                    async for chunk in self._process_speech_segment(chunk_buffer, byte_buffer):
-                        yield chunk
+                    # Only process if we had enough speech (filters out brief false positives)
+                    if speech_frames >= min_speech_frames:
+                        self.logger.debug(f"Speech segment ended ({speech_frames} frames), checking for wake word")
+                        async for chunk in self._process_speech_segment(chunk_buffer, byte_buffer):
+                            yield chunk
+                    else:
+                        self.logger.debug(f"Ignoring false positive: only {speech_frames} frames detected")
 
                     # Clear buffers either way
                     chunk_buffer.clear()
                     byte_buffer.clear()
                     is_speech_active = False
                     silence_frames = 0
+                    speech_frames = 0
 
                 # Prevent buffer from growing too large, process when it gets to max size
                 if len(byte_buffer) > MAX_BUFFER_SIZE_BYTES:
@@ -265,17 +297,20 @@ class WakeWordFilter(AudioIn, EasyResource):
                     byte_buffer.clear()
                     is_speech_active = False
                     silence_frames = 0
+                    speech_frames = 0
 
             # Process any remaining buffered audio when stream ends
-            if chunk_buffer:
-                self.logger.debug(f"Stream ended with {len(byte_buffer)} bytes buffered")
-            async for chunk in self._process_speech_segment(chunk_buffer, byte_buffer):
-                yield chunk
+            if chunk_buffer and speech_frames >= min_speech_frames:
+                self.logger.debug(f"Stream ended with {len(byte_buffer)} bytes buffered, processing")
+                async for chunk in self._process_speech_segment(chunk_buffer, byte_buffer):
+                    yield chunk
+            elif chunk_buffer:
+                self.logger.debug(f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)")
 
         return StreamWithIterator(audio_generator())
 
 
-    def check_for_wake_word(self, audio_bytes: bytes, sample_rate) -> bool:
+    def _check_for_wake_word(self, audio_bytes: bytes, sample_rate) -> bool:
         """
         Check if any wake word is in audio.
 
@@ -287,33 +322,23 @@ class WakeWordFilter(AudioIn, EasyResource):
             bool: True if any wake word detected
         """
         try:
-            self.logger.debug(f"check_for_wake_word got: {len(audio_bytes)} bytes at {sample_rate} Hz")
-
-            grammar = json.dumps(self.wake_words)
-            recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
-
-
-            # Process audio
-            accepted = recognizer.AcceptWaveform(audio_bytes)
-            self.logger.debug(f"AcceptWaveform returned: {accepted}")
-
-            # Get final result
+            recognizer = KaldiRecognizer(self.vosk_model, sample_rate)
+            recognizer.AcceptWaveform(audio_bytes)
             result = json.loads(recognizer.FinalResult())
-            self.logger.info(f"Vosk full result: {result}")
 
             text = result.get("text", "").lower()
 
             if text:
-                self.logger.info(f"Recognized text: '{text}'")
+                self.logger.debug(f"Recognized text: '{text}'")
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
 
-            # Check if any wake word is in the recognized text (word boundary matching)
+            # Check if any wake word appears at the start of the recognized text
             for wake_word in self.wake_words:
-                # Use word boundaries to avoid substring matches (e.g., "ok" shouldn't match "book")
-                pattern = rf'\b{re.escape(wake_word)}\b'
+                # Use word boundary at start to ensure wake word is first
+                pattern = rf'^\b{re.escape(wake_word)}\b'
                 if re.search(pattern, text):
-                    self.logger.debug(f"Wake word '{wake_word}' detected")
+                    self.logger.info(f"Wake word '{wake_word}' detected")
                     return True
 
             return False
@@ -322,6 +347,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             return False
 
     async def close(self):
+        # Signal shutdown to prevent new tasks
+        self.is_shutting_down = True
+
         if hasattr(self, 'executor'):
             self.executor.shutdown(wait=True)
             self.logger.debug("Thread pool executor shut down")

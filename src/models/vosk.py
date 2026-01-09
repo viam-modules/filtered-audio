@@ -15,7 +15,7 @@ def download_vosk_model(model_name, logger) -> str:
 
     Args:
         model_name: Name of the Vosk model to download
-        logger: Optional logger instance
+        logger: logger instance
 
     Returns:
         Path to the model directory
@@ -38,14 +38,12 @@ def download_vosk_model(model_name, logger) -> str:
         # Use certifi's certificate bundle for SSL verification
         ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        # Download file with SSL context
         with urllib.request.urlopen(url, context=ssl_context) as response:
             with open(zip_path, 'wb') as out_file:
                 out_file.write(response.read())
 
         logger.debug(f"Extracting to {data_path}...")
 
-        # Extract zip to data_path (zip contains folder named model_name)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(data_path)
         os.remove(zip_path)

@@ -85,7 +85,7 @@ def test_validate_config_missing_microphone():
             # source_microphone missing
         }
 
-        with pytest.raises(RuntimeError, match="source_microphone attribute is required"):
+        with pytest.raises(ValueError, match="source_microphone attribute is required"):
             WakeWordFilter.validate_config(config)
 
 
@@ -100,7 +100,7 @@ def test_validate_config_empty_microphone():
             "wake_words": ["robot"]
         }
 
-        with pytest.raises(RuntimeError, match="source_microphone attribute is required"):
+        with pytest.raises(ValueError, match="source_microphone attribute is required"):
             WakeWordFilter.validate_config(config)
 
 
@@ -115,7 +115,7 @@ def test_validate_config_missing_wake_words():
             # wake_words missing
         }
 
-        with pytest.raises(RuntimeError, match="wake_words attribute is required"):
+        with pytest.raises(ValueError, match="wake_words attribute is required"):
             WakeWordFilter.validate_config(config)
 
 
@@ -130,7 +130,7 @@ def test_validate_config_empty_wake_words():
             "wake_words": []
         }
 
-        with pytest.raises(RuntimeError, match="wake_words attribute is required"):
+        with pytest.raises(ValueError, match="wake_words attribute is required"):
             WakeWordFilter.validate_config(config)
 
 def test_validate_config_rejects_non_string_wake_words(mock_env):
@@ -143,7 +143,7 @@ def test_validate_config_rejects_non_string_wake_words(mock_env):
         "wake_words": ["robot", 123, "computer"]
     }
 
-    with pytest.raises(RuntimeError, match="All wake_words must be strings"):
+    with pytest.raises(ValueError, match="All wake_words must be strings"):
         WakeWordFilter.validate_config(config)
 
 def test_validate_config_rejects_non_string_microphone(mock_env):
@@ -156,8 +156,24 @@ def test_validate_config_rejects_non_string_microphone(mock_env):
         "wake_words": ["robot", "computer"]
     }
 
-    with pytest.raises(RuntimeError, match="source_microphone attribute must be a string"):
+    with pytest.raises(ValueError, match="source_microphone attribute must be a string"):
         WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_invalid_vad_agressiveness(mock_env):
+    """Test validate_config raises error when wake_words contains non-strings"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env['struct_to_dict'].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "vad_agressiveness": 4
+    }
+
+    with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):
+        WakeWordFilter.validate_config(config)
+
 
 
 # Tests for WakeWordFilter.new()
@@ -339,8 +355,8 @@ def test_new_handles_missing_microphone_in_dependencies(mock_env):
         with pytest.raises(KeyError):
             WakeWordFilter.new(config, dependencies)
 
-def test_check_for_wake_word_detects_wake_word():
-    """Test check_for_wake_word returns True when wake word is in audio"""
+def test_check_for_wake_word_detects_wake_word_at_start():
+    """Test check_for_wake_word returns True when wake word is at the start of audio"""
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
@@ -349,22 +365,97 @@ def test_check_for_wake_word_detects_wake_word():
     with patch('src.models.wake_word_filter.KaldiRecognizer') as mock_recognizer_class:
         mock_rec = Mock()
         mock_rec.AcceptWaveform.return_value = True
-        mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-        mock_recognizer_class.return_value = mock_rec
 
-        # Call the actual method
-        result = WakeWordFilter.check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        # Wake word at start - should match
+        mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
+        mock_recognizer_class.return_value = mock_rec
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
         assert result is True
 
+        # Wake word in middle - should not match
+        mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is False
+
+        # Wake word at end - should not match
+        mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is False
+
+        # No wake word - should not match
         mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-        result = WakeWordFilter.check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
         assert result is False
 
+        # Empty text - should NOT match
         mock_rec.FinalResult.return_value = '{"text": ""}'
-        result = WakeWordFilter.check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
         assert result is False
 
 
+def test_check_for_wake_word_handles_multiple_wake_words():
+    """Test check_for_wake_word works with multiple wake words"""
+    wake_word_filter = Mock()
+    wake_word_filter.vosk_model = Mock()
+    wake_word_filter.wake_words = ["robot", "computer", "hey assistant"]
+    wake_word_filter.logger = Mock()
+
+    with patch('src.models.wake_word_filter.KaldiRecognizer') as mock_recognizer_class:
+        mock_rec = Mock()
+        mock_rec.AcceptWaveform.return_value = True
+        mock_recognizer_class.return_value = mock_rec
+
+        # First wake word at start
+        mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is True
+
+        # Second wake word at start
+        mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is True
+
+        # Multi-word wake word at start
+        mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is True
+
+def test_check_for_wake_word_respects_word_boundaries():
+    """Test check_for_wake_word doesn't match substrings"""
+    wake_word_filter = Mock()
+    wake_word_filter.vosk_model = Mock()
+    wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.logger = Mock()
+
+    with patch('src.models.wake_word_filter.KaldiRecognizer') as mock_recognizer_class:
+        mock_rec = Mock()
+        mock_rec.AcceptWaveform.return_value = True
+        mock_recognizer_class.return_value = mock_rec
+
+        # Should match: exact word
+        mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is True
+
+        # Should not match: wake word is part of another word
+        mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is False
+
+
+def test_check_for_wake_word_handles_vosk_errors():
+    """Test check_for_wake_word returns False on Vosk errors"""
+    wake_word_filter = Mock()
+    wake_word_filter.vosk_model = Mock()
+    wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.logger = Mock()
+
+    with patch('src.models.wake_word_filter.KaldiRecognizer') as mock_recognizer_class:
+        mock_recognizer_class.side_effect = Exception("Vosk error")
+
+        result = WakeWordFilter._check_for_wake_word(wake_word_filter, b'\x00' * 1000, 16000)
+        assert result is False
+        wake_word_filter.logger.error.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_get_audio_rejects_non_pcm16_codec():
@@ -396,21 +487,6 @@ async def test_get_audio_rejects_invalid_sample_rate(mock_env):
         # Consume the generator to trigger the validation
         async for _ in stream:
             pass
-
-
-@pytest.mark.asyncio
-async def test_get_audio_returns_when_no_microphone():
-    """Test get_audio returns early when no microphone configured"""
-    wake_word_filter = Mock()
-    wake_word_filter.microphone_client = None
-    wake_word_filter.logger = Mock()
-
-    result = await WakeWordFilter.get_audio(wake_word_filter, "pcm16", 0, 0)
-
-    # Should return None or empty
-    assert result is None or result is not None
-    wake_word_filter.logger.error.assert_called_once_with("No microphone configured")
-
 
 @pytest.mark.asyncio
 async def test_get_properties_returns_mic_properties():
@@ -470,3 +546,361 @@ async def test_get_audio_rejects_stereo_audio(mock_env):
         # Consume the generator to wake_word_filter the validation
         async for _ in stream:
             pass
+
+
+@pytest.mark.asyncio
+async def test_close_sets_shutdown_flag():
+    """Test close() sets is_shutting_down flag"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.executor = Mock()
+
+    await WakeWordFilter.close(wake_word_filter)
+
+    assert wake_word_filter.is_shutting_down is True
+    wake_word_filter.executor.shutdown.assert_called_once_with(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_close_shuts_down_executor():
+    """Test close() properly shuts down thread pool executor"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    mock_executor = Mock()
+    wake_word_filter.executor = mock_executor
+
+    await WakeWordFilter.close(wake_word_filter)
+
+    mock_executor.shutdown.assert_called_once_with(wait=True)
+
+
+@pytest.mark.asyncio
+async def test_process_speech_segment_skips_when_shutting_down():
+    """Test _process_speech_segment returns early if shutting down"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = True
+    wake_word_filter.logger = Mock()
+
+    chunk_buffer = [Mock(), Mock()]
+    byte_buffer = bytearray(b'\x00' * 1000)
+
+    # Should yield nothing when shutting down
+    chunks = []
+    async for chunk in WakeWordFilter._process_speech_segment(wake_word_filter, chunk_buffer, byte_buffer):
+        chunks.append(chunk)
+
+    assert len(chunks) == 0
+    wake_word_filter.logger.debug.assert_called_with("Skipping speech processing due to shutdown")
+
+
+@pytest.mark.asyncio
+async def test_process_speech_segment_handles_executor_shutdown_error():
+    """Test _process_speech_segment handles RuntimeError during shutdown gracefully"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.executor = Mock()
+
+    chunk_buffer = [Mock()]
+    byte_buffer = bytearray(b'\x00' * 1000)
+
+    # Mock run_in_executor to raise RuntimeError with "shutdown" in message
+    async def mock_run_in_executor(*args):
+        raise RuntimeError("cannot schedule new futures after shutdown")
+
+    with patch('asyncio.get_event_loop') as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+
+        chunks = []
+        async for chunk in WakeWordFilter._process_speech_segment(wake_word_filter, chunk_buffer, byte_buffer):
+            chunks.append(chunk)
+
+        assert len(chunks) == 0
+        wake_word_filter.logger.debug.assert_called_with("Executor shutdown during processing, ignoring")
+
+
+@pytest.mark.asyncio
+async def test_process_speech_segment_yields_chunks_on_wake_word():
+    """Test _process_speech_segment yields chunks when wake word detected"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.executor = Mock()
+
+    mock_chunk1 = Mock()
+    mock_chunk2 = Mock()
+    chunk_buffer = [mock_chunk1, mock_chunk2]
+    byte_buffer = bytearray(b'\x00' * 1000)
+
+    # Mock the wake word check to return True
+    async def mock_run_in_executor(executor, func, *args):
+        return True  # Wake word detected
+
+    with patch('asyncio.get_event_loop') as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+
+        chunks = []
+        async for chunk in WakeWordFilter._process_speech_segment(wake_word_filter, chunk_buffer, byte_buffer):
+            chunks.append(chunk)
+
+        assert len(chunks) == 2
+        assert chunks[0] == mock_chunk1
+        assert chunks[1] == mock_chunk2
+
+
+@pytest.mark.asyncio
+async def test_process_speech_segment_yields_nothing_when_no_wake_word():
+    """Test _process_speech_segment yields nothing when wake word not detected"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.executor = Mock()
+
+    chunk_buffer = [Mock(), Mock()]
+    byte_buffer = bytearray(b'\x00' * 1000)
+
+    # Mock the wake word check to return False
+    async def mock_run_in_executor(executor, func, *args):
+        return False  # No wake word
+
+    with patch('asyncio.get_event_loop') as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+
+        chunks = []
+        async for chunk in WakeWordFilter._process_speech_segment(wake_word_filter, chunk_buffer, byte_buffer):
+            chunks.append(chunk)
+
+        assert len(chunks) == 0
+
+
+# Tests for minimum speech frames filtering
+@pytest.mark.asyncio
+async def test_get_audio_ignores_short_speech_segments():
+    """Test that speech segments shorter than min_speech_frames are ignored"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.vad = Mock()
+    wake_word_filter.executor = Mock()
+
+    # Mock microphone
+    mic = AsyncMock()
+    mic.get_properties.return_value = Mock(
+        sample_rate_hz=16000,
+        num_channels=1
+    )
+
+    # Create mock audio chunks - each 960 bytes = 1 frame
+    # We'll simulate 8 frames of "speech" (< 10 frame minimum)
+    async def mock_audio_stream():
+        for i in range(8):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960  # Exactly 1 frame
+            yield chunk
+
+        # Then silence to trigger processing
+        for i in range(35):  # Enough silence frames to trigger end
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+    mic.get_audio.return_value = mock_audio_stream()
+    wake_word_filter.microphone_client = mic
+
+    # Mock VAD to return True for first 8 frames, then False for silence
+    call_count = [0]
+    def mock_is_speech(frame, sample_rate):
+        call_count[0] += 1
+        return call_count[0] <= 8  # First 8 calls are "speech", rest are silence
+
+    wake_word_filter.vad.is_speech = mock_is_speech
+
+    # Get audio stream
+    stream = await WakeWordFilter.get_audio(wake_word_filter, "pcm16", 0, 0)
+
+    # Consume the stream
+    chunks = []
+    async for chunk in stream:
+        chunks.append(chunk)
+
+    # Should yield nothing because speech was too short (8 < 10 frames)
+    assert len(chunks) == 0
+
+    # Should log that it ignored the false positive
+    debug_calls = [str(call) for call in wake_word_filter.logger.debug.call_args_list]
+    assert any("false positive" in str(call).lower() or "ignoring" in str(call).lower() for call in debug_calls)
+
+
+@pytest.mark.asyncio
+async def test_get_audio_processes_long_speech_segments():
+    """Test that speech segments >= min_speech_frames are processed"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.vad = Mock()
+    wake_word_filter.executor = Mock()
+    wake_word_filter.wake_words = ["robot"]
+
+    # Mock microphone
+    mic = AsyncMock()
+    mic.get_properties.return_value = Mock(
+        sample_rate_hz=16000,
+        num_channels=1
+    )
+
+    # Create 25 frames of "speech" (> 10 frame minimum)
+    saved_chunks = []
+    async def mock_audio_stream():
+        for i in range(25):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            saved_chunks.append(chunk)
+            yield chunk
+
+        # Silence to trigger processing
+        for i in range(35):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+    mic.get_audio.return_value = mock_audio_stream()
+    wake_word_filter.microphone_client = mic
+
+    # Mock VAD: first 25 frames are speech, rest is silence
+    call_count = [0]
+    def mock_is_speech(frame, sample_rate):
+        call_count[0] += 1
+        return call_count[0] <= 25
+
+    wake_word_filter.vad.is_speech = mock_is_speech
+
+    # Mock wake word detection to return True
+    async def mock_run_in_executor(executor, func, *args):
+        return True  # Wake word detected
+
+    with patch('asyncio.get_event_loop') as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+
+        # Get audio stream
+        stream = await WakeWordFilter.get_audio(wake_word_filter, "pcm16", 0, 0)
+
+        # Consume the stream
+        chunks = []
+        async for chunk in stream:
+            chunks.append(chunk)
+
+        # Should yield chunks because speech was long enough (25 >= 10 frames)
+        # and wake word was detected
+        assert len(chunks) > 0
+
+
+@pytest.mark.asyncio
+async def test_get_audio_logs_ignored_false_positives():
+    """Test that ignored short segments log appropriate messages"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.vad = Mock()
+    wake_word_filter.executor = Mock()
+
+    # Mock microphone
+    mic = AsyncMock()
+    mic.get_properties.return_value = Mock(
+        sample_rate_hz=16000,
+        num_channels=1
+    )
+
+    # Create 5 frames of "speech" (< 10 minimum)
+    async def mock_audio_stream():
+        for i in range(5):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+        # Silence to trigger processing
+        for i in range(35):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+    mic.get_audio.return_value = mock_audio_stream()
+    wake_word_filter.microphone_client = mic
+
+    # Mock VAD
+    call_count = [0]
+    def mock_is_speech(frame, sample_rate):
+        call_count[0] += 1
+        return call_count[0] <= 5
+
+    wake_word_filter.vad.is_speech = mock_is_speech
+
+    # Get audio stream
+    stream = await WakeWordFilter.get_audio(wake_word_filter, "pcm16", 0, 0)
+
+    # Consume the stream
+    async for _ in stream:
+        pass
+
+    # Verify the correct log message was called
+    debug_calls = [call[0][0] for call in wake_word_filter.logger.debug.call_args_list if call[0]]
+
+    # Should contain a message about ignoring false positive with frame count
+    assert any("false positive" in msg.lower() and "5 frames" in msg.lower() for msg in debug_calls)
+
+
+@pytest.mark.asyncio
+async def test_min_speech_frames_boundary():
+    """Test exactly at the min_speech_frames boundary (10 frames)"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.vad = Mock()
+    wake_word_filter.executor = Mock()
+    wake_word_filter.wake_words = ["robot"]
+
+    # Mock microphone
+    mic = AsyncMock()
+    mic.get_properties.return_value = Mock(
+        sample_rate_hz=16000,
+        num_channels=1
+    )
+
+    # Create exactly 10 frames of speech (boundary case)
+    async def mock_audio_stream():
+        for i in range(10):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+        # Silence
+        for i in range(35):
+            chunk = Mock()
+            chunk.audio.audio_data = b'\x00' * 960
+            yield chunk
+
+    mic.get_audio.return_value = mock_audio_stream()
+    wake_word_filter.microphone_client = mic
+
+    # Mock VAD
+    call_count = [0]
+    def mock_is_speech(frame, sample_rate):
+        call_count[0] += 1
+        return call_count[0] <= 10
+
+    wake_word_filter.vad.is_speech = mock_is_speech
+
+    # Mock wake word detection
+    async def mock_run_in_executor(executor, func, *args):
+        return True
+
+    with patch('asyncio.get_event_loop') as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+
+        stream = await WakeWordFilter.get_audio(wake_word_filter, "pcm16", 0, 0)
+
+        chunks = []
+        async for chunk in stream:
+            chunks.append(chunk)
+
+        # Should process because 10 >= 10 (boundary included)
+        assert len(chunks) > 0
