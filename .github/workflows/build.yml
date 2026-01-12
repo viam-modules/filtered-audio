@@ -14,5 +14,6 @@ jobs:
       - uses: viamrobotics/build-action@v1
         with:
           version: ""  # Empty = build only, no deploy
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
           key-value: ${{ secrets.VIAM_DEV_API_KEY }}
