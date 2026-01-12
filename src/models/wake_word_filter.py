@@ -115,7 +115,6 @@ class WakeWordFilter(AudioIn, EasyResource):
          # Validate VAD aggressiveness
         vad_aggressiveness = attrs.get("vad_agressiveness", None)
         if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
-            print("here")
             raise ValueError(f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}")
 
         return deps, []
