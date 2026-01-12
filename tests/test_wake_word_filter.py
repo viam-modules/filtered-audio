@@ -191,7 +191,6 @@ def test_new_with_single_wake_word_string(mock_env):
 
     dependencies = {"mic1": mic}
     instance = WakeWordFilter.new(config, dependencies)
-
     assert instance.wake_words == ["robot"]
 
 
@@ -332,7 +331,7 @@ def test_new_downloads_model_when_not_found(mock_env):
     dependencies = {"mic1": mic}
 
     with patch('src.models.wake_word_filter.download_vosk_model', return_value="/tmp/downloaded-model") as mock_download:
-        instance = WakeWordFilter.new(config, dependencies)
+        WakeWordFilter.new(config, dependencies)
 
         # Verify download was called
         mock_download.assert_called_once()
