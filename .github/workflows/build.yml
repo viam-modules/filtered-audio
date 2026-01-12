@@ -15,3 +15,5 @@ jobs:
         with:
           version: ""  # Empty = build only, no deploy
           ref: ${{ github.sha }}
+          key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
+          key-value: ${{ secrets.VIAM_DEV_API_KEY }}
