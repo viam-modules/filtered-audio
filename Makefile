@@ -4,11 +4,11 @@
 setup:
 	./setup.sh
 
-setup-dev:
-	pip install -r requirements-dev.txt
+setup-dev: setup
+	./venv/bin/pip install -r requirements-dev.txt
 
 test: setup-dev
-	pytest tests/test_wake_word_filter.py -v
+	./venv/bin/pytest tests/test_wake_word_filter.py -v
 
 build: setup
 	./build.sh
