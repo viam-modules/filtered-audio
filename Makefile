@@ -1,5 +1,5 @@
 
-.PHONY: test setup setup-dev
+.PHONY: test setup setup-dev build lint lint-fix
 
 setup:
 	./setup.sh
@@ -15,3 +15,10 @@ build: setup
 
 module: build
 	cp dist/archive.tar.gz module.tar.gz
+
+lint: setup-dev
+	./venv/bin/python -m ruff check src/ tests/
+
+lint-fix: setup-dev
+	./venv/bin/python -m ruff check --fix src/ tests/
+	./venv/bin/python -m ruff format src/ tests/
