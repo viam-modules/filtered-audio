@@ -175,8 +175,6 @@ class WakeWordFilter(AudioIn, EasyResource):
           raise ValueError(f"Wake word filter only supports PCM16 codec, got: {codec}")
 
         async def audio_generator():
-            import time
-            start_time = time.time()
             self.logger.info(f"Starting speech detection with VAD... (duration_seconds={duration_seconds})")
 
             # Check mic properties
