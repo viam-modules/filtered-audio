@@ -160,7 +160,7 @@ def test_validate_config_rejects_non_string_microphone(mock_env):
         WakeWordFilter.validate_config(config)
 
 
-def test_validate_config_rejects_invalid_vad_agressiveness(mock_env):
+def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
     """Test validate_config raises error when wake_words contains non-strings"""
     config = Mock()
     config.attributes = Mock()
@@ -168,7 +168,7 @@ def test_validate_config_rejects_invalid_vad_agressiveness(mock_env):
     mock_env['struct_to_dict'].return_value = {
         "source_microphone": "mic",
         "wake_words": ["robot", "computer"],
-        "vad_agressiveness": 4
+        "vad_aggressiveness": 4
     }
 
     with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):

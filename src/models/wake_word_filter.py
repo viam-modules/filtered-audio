@@ -113,7 +113,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError(f"wake_words must be a string or list of strings, got {type(wake_words).__name__}")
 
          # Validate VAD aggressiveness
-        vad_aggressiveness = attrs.get("vad_agressiveness", None)
+        vad_aggressiveness = attrs.get("vad_aggressiveness", None)
         if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
             raise ValueError(f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}")
 
@@ -136,8 +136,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             return
 
         try:
-            loop = asyncio.get_event_loop()
-            wake_word_detected = await loop.run_in_executor(
+            wake_word_detected = await asyncio.get_running_loop().run_in_executor(
                 self.executor,
                 self._check_for_wake_word,
                 bytes(speech_buffer),
@@ -176,7 +175,9 @@ class WakeWordFilter(AudioIn, EasyResource):
           raise ValueError(f"Wake word filter only supports PCM16 codec, got: {codec}")
 
         async def audio_generator():
-            self.logger.info("Starting speech detection with VAD...")
+            import time
+            start_time = time.time()
+            self.logger.info(f"Starting speech detection with VAD... (duration_seconds={duration_seconds})")
 
             # Check mic properties
             mic_props = await self.microphone_client.get_properties()
@@ -199,6 +200,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 )
 
             mic_stream = await self.microphone_client.get_audio(codec, duration_seconds, previous_timestamp_ns)
+            self.logger.info(f"Microphone stream started (requested duration: {duration_seconds}s)")
 
             speech_chunk_buffer = [] # Audio chunks that contain speech
             speech_buffer = bytearray()  # Accumulates speech frames (raw audio bytes) for Vosk
@@ -219,7 +221,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 audio_data = audio_chunk.audio.audio_data
 
                 if not audio_data:
-                    continue
+                    continue\
 
                 # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
                 # At 16kHz: 30ms = 480 samples = 960 bytes
