@@ -1,13 +1,14 @@
-from typing import ClassVar, Mapping, Sequence, Tuple, cast
+from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any, Optional, Dict
 import asyncio
 import json
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
-from viam.components.audio_in import AudioIn
+from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
@@ -26,6 +27,15 @@ MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(ModelFamily("viam", "filtered-audio"), "wake-word-filter")
+
+    # Instance variables
+    logger: logging.Logger
+    wake_words: List[str]
+    vad: webrtcvad.Vad
+    vosk_model: VoskModel
+    executor: ThreadPoolExecutor
+    is_shutting_down: bool
+    microphone_client: AudioIn
 
     @classmethod
     def new(cls, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]) -> Self:
@@ -86,9 +96,9 @@ class WakeWordFilter(AudioIn, EasyResource):
 
     @classmethod
     def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
-        deps = []
+        deps: List[str] = []
         attrs = struct_to_dict(config.attributes)
-        mic = attrs.get("source_microphone", "")
+        mic: Any = attrs.get("source_microphone", "")
 
         if mic == "":
             raise ValueError("source_microphone attribute is required")
@@ -96,7 +106,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError("source_microphone attribute must be a string")
         deps.append(mic)
 
-        wake_words = attrs.get("wake_words", [])
+        wake_words: Any = attrs.get("wake_words", [])
         if wake_words == []:
             raise ValueError("wake_words attribute is required")
 
@@ -113,13 +123,13 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError(f"wake_words must be a string or list of strings, got {type(wake_words).__name__}")
 
          # Validate VAD aggressiveness
-        vad_aggressiveness = attrs.get("vad_aggressiveness", None)
+        vad_aggressiveness: Any = attrs.get("vad_aggressiveness", None)
         if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
             raise ValueError(f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}")
 
         return deps, []
 
-    async def _process_speech_segment(self, speech_chunk_buffer: list, speech_buffer: bytearray):
+    async def _process_speech_segment(self, speech_chunk_buffer: List[AudioChunk], speech_buffer: bytearray) -> AsyncGenerator[AudioChunk, None]:
         """
         Check buffered audio for wake words and yield chunks if detected.
 
@@ -153,7 +163,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 return
             raise
 
-    async def get_audio(self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs):
+    async def get_audio(self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs) -> StreamWithIterator:
         """
         Stream audio, yielding buffered audio chunks when a wake word detected.
 
@@ -165,7 +175,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             previous_timestamp_ns: Previous timestamp (use 0 to start from now)
 
         Yields:
-            AudioResponse chunks with original timestamps
+            AudioResponse chunks
         """
         if not self.microphone_client:
             raise ValueError("no source microphone found")
@@ -174,7 +184,8 @@ class WakeWordFilter(AudioIn, EasyResource):
           self.logger.error(f"Unsupported codec: {codec}. Only PCM16 is supported.")
           raise ValueError(f"Wake word filter only supports PCM16 codec, got: {codec}")
 
-        async def audio_generator():
+
+        async def audio_generator() -> AsyncGenerator[AudioChunk, None]:
             self.logger.info(f"Starting speech detection with VAD... (duration_seconds={duration_seconds})")
 
             # Check mic properties
@@ -200,7 +211,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             mic_stream = await self.microphone_client.get_audio(codec, duration_seconds, previous_timestamp_ns)
             self.logger.info(f"Microphone stream started (requested duration: {duration_seconds}s)")
 
-            speech_chunk_buffer = [] # Audio chunks that contain speech
+            speech_chunk_buffer: list[AudioChunk] = [] # Audio chunks that contain speech
             speech_buffer = bytearray()  # Accumulates speech frames (raw audio bytes) for Vosk
             audio_buffer = bytearray()  # Working buffer for breaking chunks into VAD frames
 
@@ -219,7 +230,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 audio_data = audio_chunk.audio.audio_data
 
                 if not audio_data:
-                    continue\
+                    continue
 
                 # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
                 # At 16kHz: 30ms = 480 samples = 960 bytes
@@ -318,7 +329,7 @@ class WakeWordFilter(AudioIn, EasyResource):
         return StreamWithIterator(audio_generator())
 
 
-    def _check_for_wake_word(self, audio_bytes: bytes, sample_rate) -> bool:
+    def _check_for_wake_word(self, audio_bytes: bytes, sample_rate: int) -> bool:
         """
         Check if any wake word is in audio.
 
@@ -354,7 +365,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             self.logger.error(f"Vosk error: {e}", exc_info=True)
             return False
 
-    async def close(self):
+    async def close(self) -> None:
         # Signal shutdown to prevent new tasks
         self.is_shutting_down = True
 
@@ -363,13 +374,13 @@ class WakeWordFilter(AudioIn, EasyResource):
             self.logger.debug("Thread pool executor shut down")
 
 
-    async def do_command(self, command, **kwargs):
+    async def do_command(self, command: Mapping[str, Any], **kwargs) -> Mapping[str, Any]:
         raise NotImplementedError()
 
-    async def get_geometries(self, **kwargs):
+    async def get_geometries(self, **kwargs) -> List[Any]:
         raise NotImplementedError()
 
-    async def get_properties(self, **kwargs):
+    async def get_properties(self, **kwargs) -> AudioIn.Properties:
         # Return properties from underlying microphone
         props = await self.microphone_client.get_properties()
         # Ensure we only report PCM16 support

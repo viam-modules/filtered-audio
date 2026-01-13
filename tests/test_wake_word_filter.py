@@ -608,7 +608,7 @@ async def test_process_speech_segment_handles_executor_shutdown_error():
     async def mock_run_in_executor(*args):
         raise RuntimeError("cannot schedule new futures after shutdown")
 
-    with patch('asyncio.get_event_loop') as mock_loop:
+    with patch('asyncio.get_running_loop') as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
@@ -636,7 +636,7 @@ async def test_process_speech_segment_yields_chunks_on_wake_word():
     async def mock_run_in_executor(executor, func, *args):
         return True  # Wake word detected
 
-    with patch('asyncio.get_event_loop') as mock_loop:
+    with patch('asyncio.get_running_loop') as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
@@ -663,7 +663,7 @@ async def test_process_speech_segment_yields_nothing_when_no_wake_word():
     async def mock_run_in_executor(executor, func, *args):
         return False  # No wake word
 
-    with patch('asyncio.get_event_loop') as mock_loop:
+    with patch('asyncio.get_running_loop') as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
