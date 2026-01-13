@@ -29,8 +29,8 @@ The following attribute template can be used to configure this model:
 
 ``
 #### Configuration Attributes
-
-The following attributes are available for the `viam:audio:microphone` model:
+it
+The following attributes are available for the `viam:filtered-audio:wake-word-filter` model:
 
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
