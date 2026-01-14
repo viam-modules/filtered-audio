@@ -12,5 +12,3 @@ sh ./setup.sh
 # or handle forwarding termination signals manually
 echo "Starting module..."
 exec $PYTHON -m src.main $@
-
-
