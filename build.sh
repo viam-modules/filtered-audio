@@ -22,4 +22,3 @@ $PYTHON -m PyInstaller main.spec
 # Create archive with meta.json
 echo "Creating archive..."
 tar -czf dist/archive.tar.gz -C dist main -C .. meta.json
-

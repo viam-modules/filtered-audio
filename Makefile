@@ -1,5 +1,5 @@
 
-.PHONY: test setup setup-dev build lint lint-fix
+.PHONY: test setup setup-dev build lint lint-fix clean
 
 default: module.tar.gz
 
@@ -24,3 +24,6 @@ lint: setup-dev
 lint-fix: setup-dev
 	./venv/bin/python -m ruff check --fix src/ tests/
 	./venv/bin/python -m ruff format src/ tests/
+
+clean:
+	rm -rf venv .installed build dist module.tar.gz
