@@ -2,7 +2,6 @@
 
 from PyInstaller.utils.hooks import collect_all
 
-# Only collect packages with binary dependencies that lack PyInstaller hooks
 datas = []
 binaries = []
 hiddenimports = ['googleapiclient']
