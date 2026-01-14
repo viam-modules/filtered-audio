@@ -1,0 +1,26 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "viam:filtered-audio",
+  "visibility": "public",
+  "url": "https://github.com/viam-modules/filtered-audio",
+  "description": "audio filters from a source microphone",
+  "models": [
+    {
+      "api": "rdk:component:audio_in",
+      "model": "viam:filtered-audio:wake-word-filter",
+      "markdown_link": "README.md#model-viamfiltered-audiowake-word-filter",
+      "short_description": "filters audio stream based on wake word detection"
+    }
+  ],
+  "entrypoint": "dist/main",
+  "build": {
+    "build": "./build.sh",
+    "setup": "./setup.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": [
+      "linux/amd64",
+      "linux/arm64",
+      "darwin/arm64"
+    ]
+  }
+}
