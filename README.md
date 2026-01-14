@@ -14,8 +14,6 @@ This module provides the following model(s):
 
 - [`viam:filtered-audio:wake-word-filter`]
 
-
-
 ## Model viam:filtered-audio:wake-word-filter
 ### Configuration
 The following attribute template can be used to configure this model:
@@ -30,14 +28,14 @@ The following attribute template can be used to configure this model:
 ``
 #### Configuration Attributes
 
-The following attributes are available for the `viam:audio:microphone` model:
+The following attributes are available for the `viam:filtered-audio:wake-word-filter` model:
 
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
 | `source_microphone` | string | **Required** | Name of a Viam AudioIn component to recieve and filter audio from
 | `wake_words` | string array | **Required** | Wake words to filter speech. All speech segments said after the wake words will be returned from get_audio
-| `vosk_model` | string | **Optional** | The name of the VOSK model to use for speech to text. Default: vosk-model-small-en-us-0.15.
-| `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise. Range: 0-3. Default: 3.
+| `vosk_model` | string | **Optional** | The name of the VOSK model to use for speech to text. Default: vosk-model-small-en-us-0.15. See [list](https://alphacephei.com/vosk/models) of available models.
+| `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise as speech. Range: 0-3. Default: 3.
 
 ### Source Microphone Requirements
 

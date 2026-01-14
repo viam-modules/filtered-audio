@@ -166,5 +166,4 @@ cython_debug/
 # Viam reload files
 .VIAM_RELOAD_ARCHIVE.tar.gz
 reload-*/
-
 module.tar.gz

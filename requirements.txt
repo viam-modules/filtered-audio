@@ -5,4 +5,4 @@ typing-extensions
 webrtcvad==2.0.10
 vosk~=0.3.44
 pydub~=0.25.1
-certifi
+certifi==2025.11.12
