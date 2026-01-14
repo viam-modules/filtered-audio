@@ -1,3 +1,4 @@
+# This script used for local development only.
 #!/bin/sh
 cd `dirname $0`
 
