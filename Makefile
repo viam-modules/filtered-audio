@@ -1,6 +1,8 @@
 
 .PHONY: test setup setup-dev build lint lint-fix
 
+default: module.tar.gz
+
 setup:
 	./setup.sh
 
@@ -13,7 +15,7 @@ test: setup-dev
 build: setup
 	./build.sh
 
-module: build
+module.tar.gz: build
 	cp dist/archive.tar.gz module.tar.gz
 
 lint: setup-dev

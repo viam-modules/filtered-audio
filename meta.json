@@ -12,7 +12,7 @@
       "short_description": "filters audio stream based on wake word detection"
     }
   ],
-  "entrypoint": "dist/main",
+  "entrypoint": "main",
   "build": {
     "build": "./build.sh",
     "setup": "./setup.sh",
