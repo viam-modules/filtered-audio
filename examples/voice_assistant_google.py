@@ -108,62 +108,47 @@ class GeminiVoiceAssistant:
             return
 
         audio_buffer = bytearray()
+        next_chunk_task = asyncio.create_task(audio_stream.__anext__())
 
         try:
             while True:
-                try:
-                    buffer_len = len(audio_buffer)
-                    print(f"Buffer: {buffer_len}")
-                    # Dynamic timeout: infinite when waiting for wake word, short when collecting speech
-                    stream_timeout = None if buffer_len == 0 else 0.5
-                    print(f"Calling __anext__() with timeout={stream_timeout}")
+                if audio_buffer:
+                    # Have data - race chunk vs timeout
+                    timeout_task = asyncio.create_task(asyncio.sleep(0.5))
+                    done, pending = await asyncio.wait(
+                        [next_chunk_task, timeout_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
 
-                    # Wait for next chunk with timeout
-                    response = await asyncio.wait_for(audio_stream.__anext__(), timeout=stream_timeout)
-                    print("Got response from __anext__()")
-                    audio_chunk = response.audio.audio_data
-
-                    if len(audio_chunk) == 0:
-                        continue
-
-                    # First chunk of a new speech segment
-                    if len(audio_buffer) == 0:
-                        print("\nWake word detected! Collecting audio...")
-
-                    audio_buffer.extend(audio_chunk)
-
-                except asyncio.TimeoutError:
-                    # No chunks arrived within timeout - speech segment ended
-                    if len(audio_buffer) > 0:
+                    if next_chunk_task in done:
+                        # Got more data
+                        response = await next_chunk_task
+                        audio_buffer.extend(response.audio.audio_data)
+                        next_chunk_task = asyncio.create_task(audio_stream.__anext__())
+                        timeout_task.cancel()
+                    else:
+                        # Timeout - speech ended
                         print(f"Speech segment ended. Processing {len(audio_buffer)} bytes...")
 
                         user_text = self.speech_to_text(bytes(audio_buffer))
 
                         if user_text:
                             print(f"You: {user_text}")
-
-                            # Get response
                             response_text = self.get_response(user_text)
                             print(f"Bot: {response_text}")
-
-                            # Speak
                             await self.speak(response_text)
                         else:
                             print("No speech recognized")
 
-                        # Clear buffer and continue listening
                         audio_buffer.clear()
                         print("\nListening for next trigger...\n")
-
-                except StopAsyncIteration:
-                    # Stream ended
-                    print(f"Audio stream ended - StopAsyncIteration raised")
-                    break
-                except Exception as e:
-                    print(f"Error in audio loop: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    break
+                else:
+                    # No data yet - just wait for wake word
+                    print("Waiting for wake word...")
+                    response = await next_chunk_task
+                    print("\nWake word detected! Collecting audio...")
+                    audio_buffer.extend(response.audio.audio_data)
+                    next_chunk_task = asyncio.create_task(audio_stream.__anext__())
 
         except KeyboardInterrupt:
             print("\n\nStopping...")
