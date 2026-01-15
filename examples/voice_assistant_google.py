@@ -70,7 +70,7 @@ class GeminiVoiceAssistant:
 
             # Send message to Gemini
             response = self.client.models.generate_content(
-                model='gemini-2.0-flash-exp',
+                model='gemini-2.5-flash',
                 contents='\n'.join(messages)
             )
 
@@ -108,13 +108,19 @@ class GeminiVoiceAssistant:
             return
 
         audio_buffer = bytearray()
-        stream_timeout = 0.5  # seconds to wait for next chunk before processing
 
         try:
             while True:
                 try:
+                    buffer_len = len(audio_buffer)
+                    print(f"Buffer: {buffer_len}")
+                    # Dynamic timeout: infinite when waiting for wake word, short when collecting speech
+                    stream_timeout = None if buffer_len == 0 else 0.5
+                    print(f"Calling __anext__() with timeout={stream_timeout}")
+
                     # Wait for next chunk with timeout
                     response = await asyncio.wait_for(audio_stream.__anext__(), timeout=stream_timeout)
+                    print("Got response from __anext__()")
                     audio_chunk = response.audio.audio_data
 
                     if len(audio_chunk) == 0:
@@ -151,7 +157,7 @@ class GeminiVoiceAssistant:
 
                 except StopAsyncIteration:
                     # Stream ended
-                    print("Audio stream ended")
+                    print(f"Audio stream ended - StopAsyncIteration raised")
                     break
                 except Exception as e:
                     print(f"Error in audio loop: {e}")

@@ -176,144 +176,152 @@ class WakeWordFilter(AudioIn, EasyResource):
           raise ValueError(f"Wake word filter only supports PCM16 codec, got: {codec}")
 
         async def audio_generator():
-            self.logger.info("Starting speech detection with VAD...")
+            try:
+                self.logger.info("Starting speech detection with VAD...")
 
-            # Check mic properties
-            mic_props = await self.microphone_client.get_properties()
-            self.logger.debug(f"Microphone properties - Sample rate: {mic_props.sample_rate_hz} Hz, Channels: {mic_props.num_channels}")
+                # Check mic properties
+                mic_props = await self.microphone_client.get_properties()
+                self.logger.debug(f"Microphone properties - Sample rate: {mic_props.sample_rate_hz} Hz, Channels: {mic_props.num_channels}")
 
-            # Validate sample rate (Vosk models are trained on 16000 Hz)
-            if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
-                raise ValueError(
-                    f"Wake word filter requires 16000 Hz audio, "
-                    f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
-                    f"Please configure source microphone to output 16000 Hz PCM16 audio."
-                )
+                # Validate sample rate (Vosk models are trained on 16000 Hz)
+                if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
+                    raise ValueError(
+                        f"Wake word filter requires 16000 Hz audio, "
+                        f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
+                        f"Please configure source microphone to output 16000 Hz PCM16 audio."
+                    )
 
-            # Validate mono audio (Vosk requires single channel)
-            if mic_props.num_channels != 1:
-                raise ValueError(
-                    f"Wake word filter requires mono (1 channel) audio, "
-                    f"but source microphone provides {mic_props.num_channels} channels. "
-                    f"Please configure source microphone for mono audio."
-                )
+                # Validate mono audio (Vosk requires single channel)
+                if mic_props.num_channels != 1:
+                    raise ValueError(
+                        f"Wake word filter requires mono (1 channel) audio, "
+                        f"but source microphone provides {mic_props.num_channels} channels. "
+                        f"Please configure source microphone for mono audio."
+                    )
 
-            mic_stream = await self.microphone_client.get_audio(codec, duration_seconds, previous_timestamp_ns)
+                mic_stream = await self.microphone_client.get_audio(codec, duration_seconds, previous_timestamp_ns)
+                self.logger.info(f"[WW_FILTER] Got mic_stream, starting to consume chunks (duration={duration_seconds})...")
 
-            speech_chunk_buffer = [] # Audio chunks that contain speech
-            speech_buffer = bytearray()  # Accumulates speech frames (raw audio bytes) for Vosk
-            audio_buffer = bytearray()  # Working buffer for breaking chunks into VAD frames
+                speech_chunk_buffer = [] # Audio chunks that contain speech
+                speech_buffer = bytearray()  # Accumulates speech frames (raw audio bytes) for Vosk
+                audio_buffer = bytearray()  # Working buffer for breaking chunks into VAD frames
 
-            is_speech_active = False
-            silence_frames = 0
-            speech_frames = 0  # Track how much speech we've heard
-            max_silence_frames = 30  # ~1 second of silence to end speech segment
-            min_speech_frames = 10  # Require at least 300ms of speech (~10 frames @ 30ms each)
+                is_speech_active = False
+                silence_frames = 0
+                speech_frames = 0  # Track how much speech we've heard
+                max_silence_frames = 30  # ~1 second of silence to end speech segment
+                min_speech_frames = 10  # Require at least 300ms of speech (~10 frames @ 30ms each)
 
-            async for audio_chunk in mic_stream:
-                # Exit stream if shutting down
-                if self.is_shutting_down:
-                    self.logger.info("Stream ending due to shutdown")
-                    break
+                async for audio_chunk in mic_stream:
+                    # Exit stream if shutting down
+                    if self.is_shutting_down:
+                        self.logger.info("Stream ending due to shutdown")
+                        break
 
-                audio_data = audio_chunk.audio.audio_data
+                    audio_data = audio_chunk.audio.audio_data
 
-                if not audio_data:
-                    continue
+                    if not audio_data:
+                        continue
 
-                # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
-                # At 16kHz: 30ms = 480 samples = 960 bytes
-                frame_size = 960
-                should_process = False
+                    # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
+                    # At 16kHz: 30ms = 480 samples = 960 bytes
+                    frame_size = 960
+                    should_process = False
 
-                # Track if we've added this chunk to the buffer yet
-                chunk_added = False
+                    # Track if we've added this chunk to the buffer yet
+                    chunk_added = False
 
-                # Add new audio data to working buffer
-                audio_buffer.extend(audio_data)
+                    # Add new audio data to working buffer
+                    audio_buffer.extend(audio_data)
 
-                # Process complete 30ms frames
-                while len(audio_buffer) >= frame_size:
-                    frame = audio_buffer[:frame_size]
+                    # Process complete 30ms frames
+                    while len(audio_buffer) >= frame_size:
+                        frame = audio_buffer[:frame_size]
 
-                    # Check if frame contains speech
-                    try:
-                        # Note: WebRTC VAD only accepts 16-bit mono PCM audio,
-                        # sampled at 8000, 16000, or 32000 Hz.
-                        # A frame must be either 10, 20, or 30 ms in duration
-                        is_speech = self.vad.is_speech(frame, mic_props.sample_rate_hz)
-                    except Exception as e:
-                        self.logger.error(f"VAD error: {e}")
-                        is_speech = False
+                        # Check if frame contains speech
+                        try:
+                            # Note: WebRTC VAD only accepts 16-bit mono PCM audio,
+                            # sampled at 8000, 16000, or 32000 Hz.
+                            # A frame must be either 10, 20, or 30 ms in duration
+                            is_speech = self.vad.is_speech(frame, mic_props.sample_rate_hz)
+                        except Exception as e:
+                            self.logger.error(f"VAD error: {e}")
+                            is_speech = False
 
-                    if is_speech:
-                        if not is_speech_active:
-                            self.logger.debug("Speech segment started")
-                            is_speech_active = True
-                        silence_frames = 0
-                        speech_frames += 1
+                        if is_speech:
+                            if not is_speech_active:
+                                self.logger.debug("Speech segment started")
+                                is_speech_active = True
+                            silence_frames = 0
+                            speech_frames += 1
 
-                        # Buffer this speech frame
-                        if not chunk_added:
-                            speech_chunk_buffer.append(audio_chunk)
-                            chunk_added = True
-                        speech_buffer.extend(frame)
-                    else:
-                        if is_speech_active:
-                            # Buffer silence frames during active speech segment
+                            # Buffer this speech frame
                             if not chunk_added:
                                 speech_chunk_buffer.append(audio_chunk)
                                 chunk_added = True
                             speech_buffer.extend(frame)
+                        else:
+                            if is_speech_active:
+                                # Buffer silence frames during active speech segment
+                                if not chunk_added:
+                                    speech_chunk_buffer.append(audio_chunk)
+                                    chunk_added = True
+                                speech_buffer.extend(frame)
 
-                            silence_frames += 1
+                                silence_frames += 1
 
-                            if silence_frames >= max_silence_frames:
-                                should_process = True
-                                audio_buffer = audio_buffer[frame_size:]  # Remove processed frame
-                                break
+                                if silence_frames >= max_silence_frames:
+                                    should_process = True
+                                    audio_buffer = audio_buffer[frame_size:]  # Remove processed frame
+                                    break
 
-                    # Remove the frame we just processed
-                    audio_buffer = audio_buffer[frame_size:]
+                        # Remove the frame we just processed
+                        audio_buffer = audio_buffer[frame_size:]
 
-                # If speech segment ended, check for wake word
-                if should_process:
-                    # Only process if we had enough speech (filters out brief false positives)
-                    if speech_frames >= min_speech_frames:
-                        self.logger.debug(f"Speech segment ended ({speech_frames} frames), checking for wake word")
+                    # If speech segment ended, check for wake word
+                    if should_process:
+                        # Only process if we had enough speech (filters out brief false positives)
+                        if speech_frames >= min_speech_frames:
+                            self.logger.debug(f"Speech segment ended ({speech_frames} frames), checking for wake word")
+                            async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
+                                yield chunk
+                        else:
+                            self.logger.debug(f"Ignoring false positive: only {speech_frames} frames detected")
+
+                        # Clear buffers either way
+                        speech_chunk_buffer.clear()
+                        speech_buffer.clear()
+                        audio_buffer.clear()
+                        is_speech_active = False
+                        silence_frames = 0
+                        speech_frames = 0
+
+                    # Prevent buffer from growing too large, process when it gets to max size
+                    if len(speech_buffer) > MAX_BUFFER_SIZE_BYTES:
+                        self.logger.debug("Processing speech segment")
                         async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
                             yield chunk
-                    else:
-                        self.logger.debug(f"Ignoring false positive: only {speech_frames} frames detected")
 
-                    # Clear buffers either way
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
+                        speech_chunk_buffer.clear()
+                        speech_buffer.clear()
+                        audio_buffer.clear()
+                        is_speech_active = False
+                        silence_frames = 0
+                        speech_frames = 0
 
-                # Prevent buffer from growing too large, process when it gets to max size
-                if len(speech_buffer) > MAX_BUFFER_SIZE_BYTES:
-                    self.logger.debug("Processing speech segment")
+                # Process any remaining buffered audio when stream ends
+                self.logger.info("[WW_FILTER] Mic stream async for loop exited - source microphone stream ended")
+                if speech_chunk_buffer and speech_frames >= min_speech_frames:
+                    self.logger.debug(f"Stream ended with {len(speech_buffer)} bytes buffered, processing")
                     async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
                         yield chunk
+                elif speech_chunk_buffer:
+                    self.logger.debug(f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)")
+                self.logger.info("[WW_FILTER] Audio generator completed normally")
+            except Exception as e:
+                self.logger.error(f"[WW_FILTER] EXCEPTION in audio_generator: {e}", exc_info=True)
+                raise
 
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
-
-            # Process any remaining buffered audio when stream ends
-            if speech_chunk_buffer and speech_frames >= min_speech_frames:
-                self.logger.debug(f"Stream ended with {len(speech_buffer)} bytes buffered, processing")
-                async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
-                    yield chunk
-            elif speech_chunk_buffer:
-                self.logger.debug(f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)")
 
         return StreamWithIterator(audio_generator())
 
