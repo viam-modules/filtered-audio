@@ -14,8 +14,6 @@ This module provides the following model(s):
 
 - [`viam:filtered-audio:wake-word-filter`]
 
-
-
 ## Model viam:filtered-audio:wake-word-filter
 ### Configuration
 The following attribute template can be used to configure this model:
@@ -29,6 +27,7 @@ The following attribute template can be used to configure this model:
 
 ``
 #### Configuration Attributes
+
 The following attributes are available for the `viam:filtered-audio:wake-word-filter` model:
 
 | Name          | Type   | Inclusion | Description                |
