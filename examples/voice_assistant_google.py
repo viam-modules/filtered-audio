@@ -20,13 +20,13 @@ from google import genai
 class GeminiVoiceAssistant:
     """Voice assistant powered by Google Cloud services."""
 
-    def __init__(self, robot: RobotClient, trigger_name: str = "filter", audioout_name: str = "speaker"):
+    def __init__(self, robot: RobotClient, filter_name: str = "filter", audioout_name: str = "speaker"):
         self.robot = robot
-        self.trigger_name = trigger_name
+        self.filter_name = filter_name
         self.audioout_name = audioout_name
         self.recognizer = sr.Recognizer()
         self.tts_lang = 'en'
-        self.trigger = None
+        self.filter = None
         self.audioout = None
 
         # Configure Gemini
@@ -37,14 +37,14 @@ class GeminiVoiceAssistant:
 
     async def start(self):
         """Initialize robot components."""
-        self.trigger = AudioIn.from_robot(self.robot, self.trigger_name)
+        self.filter = AudioIn.from_robot(self.robot, self.filter_name)
         self.audioout = AudioOut.from_robot(self.robot, self.audioout_name)
-        print(f"Connected to filtered microphone: {self.trigger_name}")
+        print(f"Connected to filtered microphone: {self.filter_name}")
         print(f"Connected to speaker: {self.audioout_name}")
 
         # Check properties
         try:
-            props = await self.trigger.get_properties()
+            props = await self.filter.get_properties()
             print(f"Filter properties: {props.sample_rate_hz}Hz, {props.num_channels} channels")
         except Exception as e:
             print(f"Warning: Could not get filter properties: {e}")
@@ -101,36 +101,24 @@ class GeminiVoiceAssistant:
 
         # Start continuous stream
         try:
-            audio_stream = await self.trigger.get_audio("pcm16", 0, 0)
+            audio_stream = await self.filter.get_audio("pcm16", 0, 0)
             print("Audio stream started successfully")
         except Exception as e:
             print(f"Error starting audio stream: {e}")
             return
 
-        audio_buffer = bytearray()
-        next_chunk_task = asyncio.create_task(audio_stream.__anext__())
-
         try:
-            while True:
-                if audio_buffer:
-                    # Have data - race chunk vs timeout
-                    timeout_task = asyncio.create_task(asyncio.sleep(0.5))
-                    done, pending = await asyncio.wait(
-                        [next_chunk_task, timeout_task],
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
+            segment = bytearray()
 
-                    if next_chunk_task in done:
-                        # Got more data
-                        response = await next_chunk_task
-                        audio_buffer.extend(response.audio.audio_data)
-                        next_chunk_task = asyncio.create_task(audio_stream.__anext__())
-                        timeout_task.cancel()
-                    else:
-                        # Timeout - speech ended
-                        print(f"Speech segment ended. Processing {len(audio_buffer)} bytes...")
+            async for chunk in audio_stream:
+                audio_data = chunk.audio.audio_data
 
-                        user_text = self.speech_to_text(bytes(audio_buffer))
+                if len(audio_data) == 0:
+                    # Empty chunk = segment ended, process it
+                    if segment:
+                        print(f"\nWake word detected! Processing {len(segment)} bytes...")
+
+                        user_text = self.speech_to_text(bytes(segment))
 
                         if user_text:
                             print(f"You: {user_text}")
@@ -140,15 +128,11 @@ class GeminiVoiceAssistant:
                         else:
                             print("No speech recognized")
 
-                        audio_buffer.clear()
-                        print("\nListening for next trigger...\n")
+                        segment.clear()
+                        print("Listening for next wake word...\n")
                 else:
-                    # No data yet - just wait for wake word
-                    print("Waiting for wake word...")
-                    response = await next_chunk_task
-                    print("\nWake word detected! Collecting audio...")
-                    audio_buffer.extend(response.audio.audio_data)
-                    next_chunk_task = asyncio.create_task(audio_stream.__anext__())
+                    # Accumulate audio data
+                    segment.extend(audio_data)
 
         except KeyboardInterrupt:
             print("\n\nStopping...")

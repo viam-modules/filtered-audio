@@ -63,3 +63,52 @@ The source microphone **must** provide audio in the following format:
 ```
 
 **Recommended Source Microphone:** Use the [`viam:system-audio`](https://app.viam.com/module/viam/system-audio) module, which supports resampling and can output 16 kHz mono PCM16 audio from any system microphone.
+
+### get_audio()
+
+The wake word filter implements the AudioIn `get_audio()` method:
+
+
+#### Parameters
+- **codec**: Must be `"pcm16"`. Other codecs are not supported.
+- **duration_seconds**: Use `0` for continuous streaming
+- **previous_timestamp_ns**: Use `0` to start from current time.
+
+#### Stream Behavior
+
+The filter returns a **continuous stream** that:
+1. **Monitors continuously** for wake words using VAD (Voice Activity Detection) and Vosk speech recognition
+2. **Only yields chunks** when a wake word is detected followed by speech
+3. **Uses empty chunks** to signal segment boundaries
+
+**Stream Protocol:**
+- **Normal chunks**: Contain audio data (16kHz mono PCM16) for detected speech segments
+- **Empty chunks**: Signal the end of a speech segment (`audio_data` has length 0)
+
+After yielding a speech segment and empty chunk, the filter resumes listening for the next wake word automatically.
+
+#### Example Usage
+
+**Basic accumulation and processing:**
+```python
+# Get continuous stream
+audio_stream = await filter.get_audio("pcm16", 0, 0)
+
+segment = bytearray()
+
+async for chunk in audio_stream:
+    audio_data = chunk.audio.audio_data
+
+    if len(audio_data) == 0:
+        # Empty chunk = segment ended
+        if segment:
+            process_speech_segment(bytes(segment))
+            segment.clear()
+    else:
+        # Normal chunk - accumulate audio
+        segment.extend(audio_data)
+```
+
+ Clients should continue consuming chunks even while processing previous segments to avoid stream disconnection.
+
+ See examples/ directory for complete usage examples.

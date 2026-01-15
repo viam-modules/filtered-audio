@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
-from viam.components.audio_in import AudioIn
+from viam.components.audio_in import AudioIn, AudioResponse
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
@@ -148,6 +148,10 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.logger.info(f"Wake word detected! Yielding {len(speech_chunk_buffer)} chunks ({len(speech_buffer)} bytes)")
                 for chunk in speech_chunk_buffer:
                     yield chunk
+
+                # Yield empty response to signal segment end
+                yield AudioResponse()
+                self.logger.debug("Sent empty chunk to signal segment end")
         except RuntimeError as e:
             if "shutdown" in str(e).lower():
                 self.logger.debug("Executor shutdown during processing, ignoring")
@@ -310,7 +314,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_frames = 0
 
                 # Process any remaining buffered audio when stream ends
-                self.logger.info("[WW_FILTER] Mic stream async for loop exited - source microphone stream ended")
                 if speech_chunk_buffer and speech_frames >= min_speech_frames:
                     self.logger.debug(f"Stream ended with {len(speech_buffer)} bytes buffered, processing")
                     async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
@@ -319,7 +322,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                     self.logger.debug(f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)")
                 self.logger.info("[WW_FILTER] Audio generator completed normally")
             except Exception as e:
-                self.logger.error(f"[WW_FILTER] EXCEPTION in audio_generator: {e}", exc_info=True)
+                self.logger.error(f"exception in audio_generator: {e}", exc_info=True)
                 raise
 
 
