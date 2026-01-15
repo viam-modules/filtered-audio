@@ -13,5 +13,5 @@ jobs:
         with:
           version: ${{ github.ref_name }}
           ref: ${{ github.sha }}
-          key-id: ${{ secrets.viam_dev_key_id }}
-          key-value: ${{ secrets.viam_dev_key }}
+          key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
+          key-value: ${{ secrets.VIAM_DEV_API_KEY }}
