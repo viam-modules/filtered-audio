@@ -160,7 +160,11 @@ def test_validate_config_rejects_non_string_microphone(mock_env):
         WakeWordFilter.validate_config(config)
 
 
+<<<<<<< HEAD
 def test_validate_config_rejects_invalid_vad_agressiveness(mock_env):
+=======
+def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
+>>>>>>> main
     """Test validate_config raises error when wake_words contains non-strings"""
     config = Mock()
     config.attributes = Mock()
@@ -168,7 +172,11 @@ def test_validate_config_rejects_invalid_vad_agressiveness(mock_env):
     mock_env['struct_to_dict'].return_value = {
         "source_microphone": "mic",
         "wake_words": ["robot", "computer"],
+<<<<<<< HEAD
         "vad_agressiveness": 4
+=======
+        "vad_aggressiveness": 4
+>>>>>>> main
     }
 
     with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):
@@ -608,7 +616,11 @@ async def test_process_speech_segment_handles_executor_shutdown_error():
     async def mock_run_in_executor(*args):
         raise RuntimeError("cannot schedule new futures after shutdown")
 
+<<<<<<< HEAD
     with patch('asyncio.get_event_loop') as mock_loop:
+=======
+    with patch('asyncio.get_running_loop') as mock_loop:
+>>>>>>> main
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
@@ -636,7 +648,11 @@ async def test_process_speech_segment_yields_chunks_on_wake_word():
     async def mock_run_in_executor(executor, func, *args):
         return True  # Wake word detected
 
+<<<<<<< HEAD
     with patch('asyncio.get_event_loop') as mock_loop:
+=======
+    with patch('asyncio.get_running_loop') as mock_loop:
+>>>>>>> main
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
@@ -663,7 +679,11 @@ async def test_process_speech_segment_yields_nothing_when_no_wake_word():
     async def mock_run_in_executor(executor, func, *args):
         return False  # No wake word
 
+<<<<<<< HEAD
     with patch('asyncio.get_event_loop') as mock_loop:
+=======
+    with patch('asyncio.get_running_loop') as mock_loop:
+>>>>>>> main
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
