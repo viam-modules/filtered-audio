@@ -2,10 +2,7 @@
 
 import os
 import ssl
-<<<<<<< HEAD
-=======
 import tempfile
->>>>>>> main
 import urllib.request
 import zipfile
 import certifi
@@ -26,11 +23,7 @@ def download_vosk_model(model_name, logger) -> str:
     """
 
     data_path = os.getenv("VIAM_MODULE_DATA")
-<<<<<<< HEAD
-    model_dir = data_path + "/" + model_name
-=======
     model_dir = os.path.join(data_path, model_name)
->>>>>>> main
 
     if os.path.exists(model_dir):
         if logger:
@@ -38,11 +31,7 @@ def download_vosk_model(model_name, logger) -> str:
         return model_dir
 
     url = f"{BASE_VOSK_URL}/{model_name}.zip"
-<<<<<<< HEAD
-    zip_path = f"/tmp/{model_name}.zip"
-=======
     zip_path = os.path.join(tempfile.gettempdir(), f"{model_name}.zip")
->>>>>>> main
 
     logger.debug(f"Downloading Vosk model from {url}...")
 

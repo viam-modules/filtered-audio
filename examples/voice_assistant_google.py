@@ -29,25 +29,16 @@ class GeminiVoiceAssistant:
         self.filter = None
         self.audioout = None
 
-        # Configure Gemini
         self.client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
         self.system_prompt = "You are a helpful voice assistant. Keep responses concise and conversational."
         self.chat_history = []
 
 
     async def start(self):
-        """Initialize robot components."""
         self.filter = AudioIn.from_robot(self.robot, self.filter_name)
         self.audioout = AudioOut.from_robot(self.robot, self.audioout_name)
         print(f"Connected to filtered microphone: {self.filter_name}")
         print(f"Connected to speaker: {self.audioout_name}")
-
-        # Check properties
-        try:
-            props = await self.filter.get_properties()
-            print(f"Filter properties: {props.sample_rate_hz}Hz, {props.num_channels} channels")
-        except Exception as e:
-            print(f"Warning: Could not get filter properties: {e}")
 
 
     def speech_to_text(self, audio_data: bytes, sample_rate: int = 16000) -> str:
@@ -92,7 +83,7 @@ class GeminiVoiceAssistant:
             mp3_data = f.read()
         os.remove(temp_mp3)
 
-        audio_info = AudioInfo(codec=AudioCodec.MP3, sample_rate_hz=24000, num_channels=1)
+        audio_info = AudioInfo(codec=AudioCodec.MP3)
         await self.audioout.play(mp3_data, audio_info)
 
     async def run(self):
@@ -167,4 +158,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\n\nStopped by user")
