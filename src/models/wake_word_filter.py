@@ -1,4 +1,4 @@
-from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any
+from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any, Optional, Dict
 import asyncio
 import json
 import logging
@@ -298,9 +298,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                         self.logger.debug(f"Speech segment ended ({speech_frames} frames), checking for wake word")
                         async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
                             yield chunk
-                        # Yield empty chunk to signify end of speech sgement
+                        # Yield empty chunk to signify end of speech segment
                         yield AudioChunk()
-
                     else:
                         self.logger.debug(f"Ignoring false positive: only {speech_frames} frames detected")
 
@@ -317,7 +316,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                     self.logger.debug("Processing speech segment")
                     async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
                         yield chunk
-                    # Yield empty chunk to signify end of speech sgement
+                    # Yield empty chunk to signify end of speech segment
                     yield AudioChunk()
 
                     speech_chunk_buffer.clear()
@@ -332,7 +331,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.logger.debug(f"Stream ended with {len(speech_buffer)} bytes buffered, processing")
                 async for chunk in self._process_speech_segment(speech_chunk_buffer, speech_buffer):
                     yield chunk
-                # Yield empty chunk to signify end of speech sgement
+                # Yield empty chunk to signify end of speech segment
                     yield AudioChunk()
             elif speech_chunk_buffer:
                 self.logger.debug(f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)")
