@@ -186,7 +186,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                 )
                 for chunk in speech_chunk_buffer:
                     yield chunk
-
                 # Yield empty chunk to signal segment end
                 yield AudioChunk()
                 self.logger.debug("Sent empty chunk to signal segment end")
@@ -389,8 +388,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                     speech_chunk_buffer, speech_buffer
                 ):
                     yield chunk
-                # Yield empty chunk to signify end of speech segment
-                    yield AudioChunk()
             elif speech_chunk_buffer:
                 self.logger.debug(
                     f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)"
