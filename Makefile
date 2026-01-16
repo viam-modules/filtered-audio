@@ -1,17 +1,29 @@
 
-.PHONY: test setup setup-dev
+.PHONY: test setup setup-dev build lint lint-fix clean
+
+default: module.tar.gz
 
 setup:
 	./setup.sh
 
-setup-dev:
-	pip install -r requirements-dev.txt
+setup-dev: setup
+	./venv/bin/pip install -r requirements-dev.txt
 
 test: setup-dev
-	pytest tests/test_wake_word_filter.py -v
+	./venv/bin/pytest tests/test_wake_word_filter.py -v
 
 build: setup
 	./build.sh
 
-module: build
+module.tar.gz: build
 	cp dist/archive.tar.gz module.tar.gz
+
+lint: setup-dev
+	./venv/bin/python -m ruff check src/ tests/
+
+lint-fix: setup-dev
+	./venv/bin/python -m ruff check --fix src/ tests/
+	./venv/bin/python -m ruff format src/ tests/
+
+clean:
+	rm -rf venv .installed build dist module.tar.gz
