@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
-from viam.components.audio_in import AudioIn, AudioResponse
+from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
@@ -187,7 +187,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 for chunk in speech_chunk_buffer:
                     yield chunk
                 # Yield empty chunk to signal segment end
-                empty_response = AudioResponse()
+                empty_response = AudioChunk()
                 empty_response.audio.audio_data = b""
                 yield empty_response()
                 self.logger.debug("Sent empty chunk to signal segment end")
