@@ -10,6 +10,7 @@ import certifi
 
 BASE_VOSK_URL = "https://alphacephei.com/vosk/models"
 
+
 def download_vosk_model(model_name, logger) -> str:
     """
     Download Vosk model
@@ -40,12 +41,12 @@ def download_vosk_model(model_name, logger) -> str:
         ssl_context = ssl.create_default_context(cafile=certifi.where())
 
         with urllib.request.urlopen(url, context=ssl_context) as response:
-            with open(zip_path, 'wb') as out_file:
+            with open(zip_path, "wb") as out_file:
                 out_file.write(response.read())
 
         logger.debug(f"Extracting to {data_path}...")
 
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
             zip_ref.extractall(data_path)
         os.remove(zip_path)
         logger.debug(f"Vosk model downloaded successfully to {model_dir}")

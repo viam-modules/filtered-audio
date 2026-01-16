@@ -15,11 +15,10 @@ fi
 # Clean previous builds
 rm -rf build dist
 
-# Run PyInstaller
+# Run PyInstaller using the spec file
 echo "Running PyInstaller..."
-$PYTHON -m PyInstaller --onefile --hidden-import="googleapiclient" src/main.py
+$PYTHON -m PyInstaller main.spec
 
 # Create archive with meta.json
 echo "Creating archive..."
 tar -czf dist/archive.tar.gz -C dist main -C .. meta.json
-

@@ -4,27 +4,19 @@ cd `dirname $0`
 # Create a virtual environment to run our code
 VENV_NAME="venv"
 PYTHON="$VENV_NAME/bin/python"
-ENV_ERROR="This module requires Python >=3.8, pip, and virtualenv to be installed."
 
-if ! python3 -m venv $VENV_NAME >/dev/null 2>&1; then
-    echo "Failed to create virtualenv."
+# Try to create virtualenv
+if ! python3 -m venv $VENV_NAME 2>&1; then
+    echo "Failed to create virtualenv. Installing python3, python3-pip, and python3-venv..."
     if command -v apt-get >/dev/null; then
-        echo "Detected Debian/Ubuntu, attempting to install python3-venv automatically."
-        SUDO="sudo"
-        if ! command -v $SUDO >/dev/null; then
-            SUDO=""
-        fi
-		if ! apt info python3-venv >/dev/null 2>&1; then
-			echo "Package info not found, trying apt update"
-			$SUDO apt -qq update >/dev/null
-		fi
-        $SUDO apt install -qqy python3-venv >/dev/null 2>&1
-        if ! python3 -m venv $VENV_NAME >/dev/null 2>&1; then
-            echo $ENV_ERROR >&2
+        sudo apt-get update -qq
+        sudo apt-get install -y python3 python3-pip python3-venv
+        if ! python3 -m venv $VENV_NAME 2>&1; then
+            echo "Failed to create virtualenv even after installing dependencies" >&2
             exit 1
         fi
     else
-        echo $ENV_ERROR >&2
+        echo "This module requires Python >=3.8, pip, and virtualenv to be installed." >&2
         exit 1
     fi
 fi
@@ -34,6 +26,7 @@ fi
 echo "Virtualenv found/created. Installing/upgrading Python packages..."
 if ! [ -f .installed ]; then
     if ! $PYTHON -m pip install -r requirements.txt -Uqq; then
+        echo "Failed to install Python packages" >&2
         exit 1
     else
         touch .installed

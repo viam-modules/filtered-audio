@@ -1,7 +1,7 @@
 """
 Voice assistant using Google Speech-to-Text, Gemini, and Google TTS.
 
-Requires: pip install google-genai SpeechRecognition gTTS
+Requires: pip install viam-sdk google-genai SpeechRecognition gTTS
 Set environment variable: GOOGLE_API_KEY
 Generate an API key at https://aistudio.google.com/app/u/1/api-keys
 """
@@ -90,47 +90,49 @@ class GeminiVoiceAssistant:
         """Continuously listen and respond."""
         print("Listening for wake word...")
 
-        # Start continuous stream
-        try:
-            audio_stream = await self.filter.get_audio("pcm16", 0, 0)
-            print("Audio stream started successfully")
-        except Exception as e:
-            print(f"Error starting audio stream: {e}")
-            return
+        while True:
+            # Start continuous stream
+            try:
+                audio_stream = await self.filter.get_audio("pcm16", 0, 0)
+            except Exception as e:
+                print(f"Error starting audio stream: {e}, retrying...")
+                await asyncio.sleep(1)
+                continue
 
-        try:
-            segment = bytearray()
+            try:
+                segment = bytearray()
 
-            async for chunk in audio_stream:
-                audio_data = chunk.audio.audio_data
+                async for chunk in audio_stream:
+                    audio_data = chunk.audio.audio_data
 
-                if len(audio_data) == 0:
-                    # Empty chunk = segment ended, process it
-                    if segment:
-                        print(f"\nWake word detected! Processing {len(segment)} bytes...")
+                    if len(audio_data) == 0:
+                        # Empty chunk = segment ended, process it
+                        if segment:
+                            print(f"\nWake word detected! Processing {len(segment)} bytes...")
 
-                        user_text = self.speech_to_text(bytes(segment))
+                            user_text = self.speech_to_text(bytes(segment))
 
-                        if user_text:
-                            print(f"You: {user_text}")
-                            response_text = self.get_response(user_text)
-                            print(f"Bot: {response_text}")
-                            await self.speak(response_text)
-                        else:
-                            print("No speech recognized")
+                            if user_text:
+                                print(f"You: {user_text}")
+                                response_text = self.get_response(user_text)
+                                print(f"Bot: {response_text}")
+                                await self.speak(response_text)
+                            else:
+                                print("No speech recognized")
 
-                        segment.clear()
-                        print("Listening for next wake word...\n")
-                else:
-                    # Accumulate audio data
-                    segment.extend(audio_data)
+                            segment.clear()
+                            print("Listening for next wake word...\n")
+                    else:
+                        # Accumulate audio data
+                        segment.extend(audio_data)
 
-        except KeyboardInterrupt:
-            print("\n\nStopping...")
-        except Exception as e:
-            print(f"Unexpected error: {e}")
-            import traceback
-            traceback.print_exc()
+            except KeyboardInterrupt:
+                print("\n\nStopping...")
+                return
+            except Exception as e:
+                print(f"Stream disconnected: {e}, reconnecting...")
+                await asyncio.sleep(1)
+                continue
 
 
 async def main():
@@ -142,12 +144,12 @@ async def main():
 
 
     opts = RobotClient.Options.with_api_key(
-        api_key='yn2v121yklqjfduvse718fn582dskzi1',
-        api_key_id='d04e49b3-7799-4afe-ba3a-a5b35d802b17'
+        api_key='3td02koc3erzfyofi6rx2zu6uygeybay',
+        api_key_id='36b8d920-9271-4dd7-95da-17147a640591'
     )
 
 
-    robot = await RobotClient.at_address('xarm-main.aqb785vhl4.viam.cloud', opts)
+    robot = await RobotClient.at_address('lorawan-main.ytxdza0q92.viam.cloud', opts)
 
     try:
         assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
