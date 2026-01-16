@@ -189,7 +189,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 # Yield empty chunk to signal segment end
                 empty_response = AudioChunk()
                 empty_response.audio.audio_data = b""
-                yield empty_response()
+                yield empty_response
                 self.logger.debug("Sent empty chunk to signal segment end")
         except RuntimeError as e:
             if "shutdown" in str(e).lower():
