@@ -665,16 +665,59 @@ async def test_process_speech_segment_yields_chunks_on_wake_word():
 
     with patch("asyncio.get_running_loop") as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
+        with patch("src.models.wake_word_filter.AudioChunk") as mock_audio_chunk_class:
+            empty_chunk = Mock()
+            empty_chunk.audio = Mock()
+            mock_audio_chunk_class.return_value = empty_chunk
 
-        chunks = []
-        async for chunk in WakeWordFilter._process_speech_segment(
-            wake_word_filter, chunk_buffer, byte_buffer
-        ):
-            chunks.append(chunk)
+            chunks = []
+            async for chunk in WakeWordFilter._process_speech_segment(
+                wake_word_filter, chunk_buffer, byte_buffer
+            ):
+                chunks.append(chunk)
 
-        assert len(chunks) == 2
-        assert chunks[0] == mock_chunk1
-        assert chunks[1] == mock_chunk2
+            # Should yield 2 audio chunks + 1 empty chunk at end
+            assert len(chunks) == 3
+            assert chunks[0] == mock_chunk1
+            assert chunks[1] == mock_chunk2
+            assert chunks[2] == empty_chunk
+
+
+@pytest.mark.asyncio
+async def test_process_speech_segment_yields_empty_chunk_at_end():
+    """Test _process_speech_segment yields an empty AudioChunk at the end to signal segment end"""
+    wake_word_filter = Mock()
+    wake_word_filter.is_shutting_down = False
+    wake_word_filter.logger = Mock()
+    wake_word_filter.executor = Mock()
+
+    mock_chunk = Mock()
+    mock_chunk.audio = Mock()
+    mock_chunk.audio.audio_data = b"\x00" * 100
+    chunk_buffer = [mock_chunk]
+    byte_buffer = bytearray(b"\x00" * 1000)
+
+    # Mock the wake word check to return True
+    async def mock_run_in_executor(executor, func, *args):
+        return True  # Wake word detected
+
+    with patch("asyncio.get_running_loop") as mock_loop:
+        mock_loop.return_value.run_in_executor = mock_run_in_executor
+        with patch("src.models.wake_word_filter.AudioChunk") as mock_audio_chunk_class:
+            empty_chunk = Mock()
+            empty_chunk.audio = Mock()
+            mock_audio_chunk_class.return_value = empty_chunk
+
+            chunks = []
+            async for chunk in WakeWordFilter._process_speech_segment(
+                wake_word_filter, chunk_buffer, byte_buffer
+            ):
+                chunks.append(chunk)
+
+            # Last chunk should be the empty AudioChunk
+            assert len(chunks) == 2
+            assert chunks[0] == mock_chunk
+            assert chunks[1] == empty_chunk
 
 
 @pytest.mark.asyncio

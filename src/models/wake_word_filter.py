@@ -186,6 +186,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                 )
                 for chunk in speech_chunk_buffer:
                     yield chunk
+                # Yield empty chunk to signal segment end
+                empty_response = AudioChunk()
+                empty_response.audio.audio_data = b""
+                yield empty_response
+                self.logger.debug("Sent empty chunk to signal segment end")
         except RuntimeError as e:
             if "shutdown" in str(e).lower():
                 self.logger.debug("Executor shutdown during processing, ignoring")
