@@ -148,7 +148,7 @@ def test_validate_config_rejects_non_string_wake_words(mock_env):
 
 
 def test_validate_config_rejects_non_string_microphone(mock_env):
-    """Test validate_config raises error when wake_words contains non-strings"""
+    """Test validate_config raises error when microphone is non-string"""
     config = Mock()
     config.attributes = Mock()
 
@@ -164,7 +164,7 @@ def test_validate_config_rejects_non_string_microphone(mock_env):
 
 
 def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
-    """Test validate_config raises error when wake_words contains non-strings"""
+    """Test validate_config raises error when vad_agressiveness invalid"""
     config = Mock()
     config.attributes = Mock()
 
@@ -175,6 +175,56 @@ def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
     }
 
     with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):
+        WakeWordFilter.validate_config(config)
+
+def test_validate_config_rejects_non_int_vad_agressiveness(mock_env):
+    """Test validate_config raises error when vad_agressiveness not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "vad_aggressiveness": "4",
+    }
+
+    with pytest.raises(
+        ValueError, match="vad_aggressiveness attribute must be an integer"
+    ):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_fuzzy_threshold(mock_env):
+    """Test validate_config raises error when fuzzy_threshold not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "fuzzy_threshold": "5",
+    }
+
+    with pytest.raises(
+        ValueError, match="fuzzy_threshold attribute must be an integer"
+    ):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_invalid_fuzzy_threshold(mock_env):
+    """Test validate_config raises error when fuzzy_threshold not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "fuzzy_threshold": 7,
+    }
+
+    with pytest.raises(
+        ValueError, match="fuzzy_threshold must be 0-5, got 7"
+    ):
         WakeWordFilter.validate_config(config)
 
 
