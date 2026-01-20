@@ -1,4 +1,3 @@
-import pytest
 from src.models.fuzzy_matcher import FuzzyWakeWordMatcher
 
 
@@ -9,19 +8,19 @@ class TestFuzzyWakeWordMatcher:
         """Test exact match returns with distance 0."""
         matcher = FuzzyWakeWordMatcher(threshold=2)
         ret = matcher.match("hey robot turn on lights", "hey robot")
-        assert ret['distance'] == 0
+        assert ret["distance"] == 0
 
     def test_fuzzy_match_the_robot(self):
         """Test 'the robot' matches 'hey robot' (common transcription error)."""
         matcher = FuzzyWakeWordMatcher(threshold=2)
         ret = matcher.match("the robot say something", "hey robot")
-        assert ret['distance'] == 2
+        assert ret["distance"] == 2
 
     def test_fuzzy_match_a_robot(self):
         """Test 'a robot' matches 'hey robot' (distance 3)."""
         matcher = FuzzyWakeWordMatcher(threshold=3)
         ret = matcher.match("a robot turn on lights", "hey robot")
-        assert ret['distance'] == 3
+        assert ret["distance"] == 3
         # With threshold 2, should not match
         matcher_strict = FuzzyWakeWordMatcher(threshold=2)
         assert matcher_strict.match("a robot turn on lights", "hey robot") is None
@@ -30,7 +29,7 @@ class TestFuzzyWakeWordMatcher:
         """Test 'hey Robert' matches 'hey robot' (distance 1)."""
         matcher = FuzzyWakeWordMatcher(threshold=2)
         ret = matcher.match("hey robert what time is it", "hey robot")
-        assert ret['distance'] == 2
+        assert ret["distance"] == 2
 
     def test_no_match_too_different(self):
         """Test 'they robotic' does not match 'hey robot' (too far)."""
@@ -46,16 +45,18 @@ class TestFuzzyWakeWordMatcher:
         """Test single word wake word matching."""
         matcher = FuzzyWakeWordMatcher(threshold=1)
         ret = matcher.match("robot turn on", "robot")
-        assert ret['distance'] == 0
+        assert ret["distance"] == 0
         ret = matcher.match("robut turn on", "robot")
-        assert ret['distance'] == 1
-        assert matcher.match("robert turn on", "robot") is None  # distance 2 - too different
+        assert ret["distance"] == 1
+        assert (
+            matcher.match("robert turn on", "robot") is None
+        )  # distance 2 - too different
 
     def test_threshold_0_exact_only(self):
         """Test threshold 0 only allows exact matches."""
         matcher = FuzzyWakeWordMatcher(threshold=0)
         ret = matcher.match("hey robot do something", "hey robot")
-        assert ret['distance'] == 0
+        assert ret["distance"] == 0
         assert matcher.match("the robot do something", "hey robot") is None
 
     def test_empty_transcript(self):

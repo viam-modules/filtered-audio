@@ -86,7 +86,7 @@ Fuzzy matching uses word-boundary matching to allow wake words to trigger even w
 | Transcribed | Wake Word | Distance | Match |
 |-------------|-----------|----------|-------|
 | "the robot say something" | "hey robot" | 2 | ✓ |
-| "a robot turn on lights" | "hey robot" | 2 | ✓ |
+| "a robot turn on lights" | "hey robot" | 3 | ✓ |
 | "hey Robert what time" | "hey robot" | 2 | ✓ |
 | "they robotic assistant" | "hey robot" | 5 | ✗ |
 
