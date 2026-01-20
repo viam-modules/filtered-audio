@@ -367,6 +367,7 @@ def test_check_for_wake_word_detects_wake_word_at_start():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
@@ -415,6 +416,7 @@ def test_check_for_wake_word_handles_multiple_wake_words():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot", "computer", "hey assistant"]
+    wake_word_filter.fuzzy_matcher = None  # Exact matching
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
@@ -449,7 +451,7 @@ def test_check_for_wake_word_respects_word_boundaries():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None  # Exact matching
+    wake_word_filter.fuzzy_matcher = None
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:

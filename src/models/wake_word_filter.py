@@ -206,11 +206,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                 )
                 for chunk in speech_chunk_buffer:
                     yield chunk
-                # Yield chunk with empty audio_data to signal segment end
-                empty_chunk = AudioChunk()
-                empty_chunk.audio.audio_data = b""
-                yield empty_chunk
-                self.logger.debug("Sent empty chunk to signal segment end")
         except RuntimeError as e:
             if "shutdown" in str(e).lower():
                 self.logger.debug("Executor shutdown during processing, ignoring")
@@ -443,8 +438,8 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             for wake_word in self.wake_words:
                 if self.fuzzy_matcher:
-                    # Use fuzzy matching with Levenshtein distance
-                    match_details = self.fuzzy_matcher.match_with_details(text, wake_word)
+                    # Use fuzzy matching to match work word
+                    match_details = self.fuzzy_matcher.match(text, wake_word)
                     if match_details:
                         self.logger.info(
                             f"Wake word '{wake_word}' detected (fuzzy match: "
@@ -452,7 +447,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                         )
                         return True
                 else:
-                    # Exact match at start of text
+                    # search for exact wake word match at start of text
                     pattern = rf"^\b{re.escape(wake_word)}\b"
                     if re.search(pattern, text):
                         self.logger.info(f"Wake word '{wake_word}' detected")

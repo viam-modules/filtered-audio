@@ -87,7 +87,7 @@ Fuzzy matching uses word-boundary matching to allow wake words to trigger even w
 |-------------|-----------|----------|-------|
 | "the robot say something" | "hey robot" | 2 | ✓ |
 | "a robot turn on lights" | "hey robot" | 2 | ✓ |
-| "hey Robert what time" | "hey robot" | 1 | ✓ |
+| "hey Robert what time" | "hey robot" | 2 | ✓ |
 | "they robotic assistant" | "hey robot" | 5 | ✗ |
 
 The word-boundary approach prevents partial-word matches like "robotic" matching "robot".
