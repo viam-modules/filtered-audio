@@ -74,7 +74,7 @@ The wake word filter implements the AudioIn `get_audio()` method:
 
 #### Stream Behavior
 
-The filter returns a continuous stream*that:
+The filter returns a continuous stream that:
 1. Monitors continuously for wake words using VAD (Voice Activity Detection) and Vosk speech recognition
 2. Only yields chunks when a wake word is detected followed by speech
 3. Uses empty chunks to signal speech segment boundaries

@@ -13,10 +13,11 @@ from viam.robot.client import RobotClient
 from viam.components.audio_in import AudioIn, AudioCodec
 from viam.components.audio_out import AudioOut, AudioInfo
 import speech_recognition as sr
+from io import BytesIO
 from gtts import gTTS
 from google import genai
 
-
+PCM16_SAMPLE_WIDTH = 2
 class GeminiVoiceAssistant:
     """Voice assistant powered by Google Cloud services."""
 
@@ -43,7 +44,7 @@ class GeminiVoiceAssistant:
 
     def speech_to_text(self, audio_data: bytes, sample_rate: int = 16000) -> str:
         """Convert audio to text."""
-        audio = sr.AudioData(audio_data, sample_rate, 2)
+        audio = sr.AudioData(audio_data, sample_rate, PCM16_SAMPLE_WIDTH)
         try:
             text = self.recognizer.recognize_google(audio)
             return text
@@ -76,13 +77,9 @@ class GeminiVoiceAssistant:
 
     async def speak(self, text: str):
         """Text to speech."""
-        temp_mp3 = "/tmp/tts.mp3"
-        gTTS(text=text, lang=self.tts_lang).save(temp_mp3)
-
-        with open(temp_mp3, 'rb') as f:
-            mp3_data = f.read()
-        os.remove(temp_mp3)
-
+        buffer = BytesIO()
+        gTTS(text=text, lang=self.tts_lang).write_to_fp(buffer)
+        mp3_data = buffer.getvalue()
         audio_info = AudioInfo(codec=AudioCodec.MP3)
         await self.audioout.play(mp3_data, audio_info)
 
@@ -144,12 +141,13 @@ async def main():
 
 
     opts = RobotClient.Options.with_api_key(
-        api_key='<KEY>',
-        api_key_id='<KEY_ID>'
+        api_key='yn2v121yklqjfduvse718fn582dskzi1',
+
+        api_key_id='d04e49b3-7799-4afe-ba3a-a5b35d802b17'
     )
 
 
-    robot = await RobotClient.at_address('<ADDRESS>', opts)
+    robot = await RobotClient.at_address('xarm-main.aqb785vhl4.viam.cloud', opts)
 
     try:
         assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
