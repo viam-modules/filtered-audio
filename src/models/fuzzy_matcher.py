@@ -40,10 +40,7 @@ class FuzzyWakeWordMatcher:
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
-
-    def match(
-        self, transcript: str, wake_word: str
-    ) -> Optional[dict]:
+    def match(self, transcript: str, wake_word: str) -> Optional[dict]:
         """Check if wake word matches and return match details.
 
         Args:

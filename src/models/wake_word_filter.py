@@ -1,4 +1,14 @@
-from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any, Optional
+from typing import (
+    ClassVar,
+    Mapping,
+    Sequence,
+    Tuple,
+    cast,
+    List,
+    AsyncGenerator,
+    Any,
+    Optional,
+)
 import asyncio
 import json
 import logging
@@ -69,7 +79,9 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Fuzzy matching - enabled if fuzzy_threshold is set
         fuzzy_threshold = attrs.get("fuzzy_threshold", None)
         if fuzzy_threshold is not None:
-            instance.fuzzy_matcher = FuzzyWakeWordMatcher(threshold=int(fuzzy_threshold))
+            instance.fuzzy_matcher = FuzzyWakeWordMatcher(
+                threshold=int(fuzzy_threshold)
+            )
             instance.logger.info(
                 f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
             )
@@ -168,9 +180,7 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Validate fuzzy threshold
         fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
         if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
-            raise ValueError(
-                f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}"
-            )
+            raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
 
         return deps, []
 
