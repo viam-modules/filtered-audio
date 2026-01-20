@@ -1,4 +1,4 @@
-from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any
+from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any, Optional
 import asyncio
 import json
 import logging
@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
+
+from .fuzzy_matcher import FuzzyWakeWordMatcher
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
@@ -39,6 +41,7 @@ class WakeWordFilter(AudioIn, EasyResource):
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
+    fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
 
     @classmethod
     def new(
@@ -162,6 +165,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                 f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}"
             )
 
+        # Validate fuzzy threshold
+        fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
+        if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
+            raise ValueError(
+                f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}"
+            )
+
         return deps, []
 
     async def _process_speech_segment(
@@ -196,10 +206,10 @@ class WakeWordFilter(AudioIn, EasyResource):
                 )
                 for chunk in speech_chunk_buffer:
                     yield chunk
-                # Yield empty chunk to signal segment end
-                empty_response = AudioChunk()
-                empty_response.audio.audio_data = b""
-                yield empty_response
+                # Yield chunk with empty audio_data to signal segment end
+                empty_chunk = AudioChunk()
+                empty_chunk.audio.audio_data = b""
+                yield empty_chunk
                 self.logger.debug("Sent empty chunk to signal segment end")
         except RuntimeError as e:
             if "shutdown" in str(e).lower():
@@ -429,14 +439,24 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.logger.debug(f"Recognized text: '{text}'")
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
+                return False
 
-            # Check if any wake word appears at the start of the recognized text
             for wake_word in self.wake_words:
-                # Use word boundary at start to ensure wake word is first
-                pattern = rf"^\b{re.escape(wake_word)}\b"
-                if re.search(pattern, text):
-                    self.logger.info(f"Wake word '{wake_word}' detected")
-                    return True
+                if self.fuzzy_matcher:
+                    # Use fuzzy matching with Levenshtein distance
+                    match_details = self.fuzzy_matcher.match_with_details(text, wake_word)
+                    if match_details:
+                        self.logger.info(
+                            f"Wake word '{wake_word}' detected (fuzzy match: "
+                            f"'{match_details['matched_text']}', distance={match_details['distance']})"
+                        )
+                        return True
+                else:
+                    # Exact match at start of text
+                    pattern = rf"^\b{re.escape(wake_word)}\b"
+                    if re.search(pattern, text):
+                        self.logger.info(f"Wake word '{wake_word}' detected")
+                        return True
 
             return False
         except Exception as e:
