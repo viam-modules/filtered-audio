@@ -63,6 +63,16 @@ class WakeWordFilter(AudioIn, EasyResource):
             attrs.get("vad_aggressiveness", DEFAULT_VAD_AGGRESSIVENESS)
         )
 
+        # Fuzzy matching - enabled if fuzzy_threshold is set
+        fuzzy_threshold = attrs.get("fuzzy_threshold", None)
+        if fuzzy_threshold is not None:
+            instance.fuzzy_matcher = FuzzyWakeWordMatcher(threshold=int(fuzzy_threshold))
+            instance.logger.info(
+                f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
+            )
+        else:
+            instance.fuzzy_matcher = None
+
         # Initialize WebRTC VAD
         instance.vad = webrtcvad.Vad(vad_aggressiveness)
         instance.logger.info(
