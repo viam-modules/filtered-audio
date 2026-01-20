@@ -10,7 +10,7 @@ setup-dev: setup
 	./venv/bin/pip install -r requirements-dev.txt
 
 test: setup-dev
-	./venv/bin/pytest tests/test_wake_word_filter.py -v
+	./venv/bin/pytest tests/test_wake_word_filter.py tests/test_fuzzy_matcher.py -v
 
 build: setup
 	./build.sh
