@@ -18,7 +18,7 @@ class FuzzyWakeWordMatcher:
     Uses word-boundary matching to prevent partial-word false positives.
     """
 
-    def __init__(self, threshold):
+    def __init__(self, threshold: int):
         """Initialize the fuzzy matcher.
 
         Args:
@@ -27,7 +27,7 @@ class FuzzyWakeWordMatcher:
                        2 = handles common transcription errors
                        5 = very lenient
         """
-        self.threshold = max(0, threshold)
+        self.threshold = threshold
 
     def _normalize_text(self, text: str) -> str:
         """Normalize text for comparison.
