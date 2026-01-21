@@ -172,8 +172,9 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Validate VAD aggressiveness
         vad_aggressiveness: Any = attrs.get("vad_aggressiveness", None)
-        if vad_aggressiveness is not None and not isinstance(vad_aggressiveness, int):
-                raise ValueError("vad_aggressiveness attribute must be an integer")
+        if vad_aggressiveness is not None:
+            if not isinstance(vad_aggressiveness, (int, float)) or vad_aggressiveness % 1 != 0:
+                raise ValueError("vad_aggressiveness must be a whole number")
         if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
             raise ValueError(
                 f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}"
@@ -181,8 +182,9 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Validate fuzzy threshold
         fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
-        if fuzzy_threshold is not None and not isinstance(fuzzy_threshold, int):
-                raise ValueError("fuzzy_threshold attribute must be an integer")
+        if fuzzy_threshold is not None:
+            if not isinstance(fuzzy_threshold, (int, float)) or fuzzy_threshold % 1 != 0:
+                raise ValueError("fuzzy_threshold must be a whole number")
         if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
             raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
 
