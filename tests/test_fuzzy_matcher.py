@@ -118,3 +118,11 @@ class TestFuzzyWakeWordMatcher:
         matcher = FuzzyWakeWordMatcher(threshold=2)
         # "robotics" should not match "robot" at start
         assert matcher.match("robotics is cool", "robot") is None
+
+    def test_normalize_substring(self):
+        """Test normalization handles punctuation and casing."""
+        matcher = FuzzyWakeWordMatcher(threshold=2)
+        # Punctuation and casing should be normalized
+        assert matcher._normalize_text("Hey, Robot!") == "hey robot"
+        assert matcher._normalize_text("  multiple   spaces  ") == "multiple spaces"
+        assert matcher._normalize_text("can't stop") == "can't stop"
