@@ -63,6 +63,12 @@ class FuzzyWakeWordMatcher:
         best_match = None
         best_distance = self.threshold + 1
 
+        # Try matching the wake phrase against a window of words
+        # that is roughly the same length as the wake phrase.
+        # We allow:
+        #   - one word fewer
+        #   - the exact number of words
+        #   - one extra word
         for num_words in range(max(1, len(wake_words) - 1), len(wake_words) + 2):
             if num_words > len(text_words):
                 continue
@@ -70,6 +76,7 @@ class FuzzyWakeWordMatcher:
             window_text = " ".join(text_words[:num_words])
             distance = Levenshtein.distance(normalized_wake, window_text)
 
+            # If we found a smaller distance, store it.
             if distance < best_distance:
                 best_distance = distance
                 best_match = {
@@ -77,6 +84,8 @@ class FuzzyWakeWordMatcher:
                     "distance": distance,
                     "remaining_text": " ".join(text_words[num_words:]),
                 }
+            if distance == 0:
+                 break
 
         if best_match and best_distance <= self.threshold:
             return best_match

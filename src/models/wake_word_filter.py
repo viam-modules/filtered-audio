@@ -452,7 +452,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             for wake_word in self.wake_words:
                 if self.fuzzy_matcher:
-                    # Use fuzzy matching to match work word
+                    # Use fuzzy matching to match wake word
                     match_details = self.fuzzy_matcher.match(text, wake_word)
                     if match_details:
                         self.logger.info(

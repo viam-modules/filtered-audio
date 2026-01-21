@@ -6,4 +6,4 @@ webrtcvad==2.0.10
 vosk~=0.3.44
 pydub~=0.25.1
 certifi==2025.11.12
-rapidfuzz~=3.10.0
+rapidfuzz~=3.14.3
