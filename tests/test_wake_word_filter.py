@@ -177,6 +177,7 @@ def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
     with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):
         WakeWordFilter.validate_config(config)
 
+
 def test_validate_config_rejects_non_int_vad_agressiveness(mock_env):
     """Test validate_config raises error when vad_agressiveness not an int"""
     config = Mock()
@@ -189,7 +190,7 @@ def test_validate_config_rejects_non_int_vad_agressiveness(mock_env):
     }
 
     with pytest.raises(
-        ValueError, match="vad_aggressiveness attribute must be an integer"
+        ValueError, match="vad_aggressiveness must be a whole number"
     ):
         WakeWordFilter.validate_config(config)
 
@@ -206,7 +207,7 @@ def test_validate_config_rejects_non_int_fuzzy_threshold(mock_env):
     }
 
     with pytest.raises(
-        ValueError, match="fuzzy_threshold attribute must be an integer"
+        ValueError, match="fuzzy_threshold must be a whole number"
     ):
         WakeWordFilter.validate_config(config)
 
@@ -222,9 +223,7 @@ def test_validate_config_rejects_invalid_fuzzy_threshold(mock_env):
         "fuzzy_threshold": 7,
     }
 
-    with pytest.raises(
-        ValueError, match="fuzzy_threshold must be 0-5, got 7"
-    ):
+    with pytest.raises(ValueError, match="fuzzy_threshold must be 0-5, got 7"):
         WakeWordFilter.validate_config(config)
 
 

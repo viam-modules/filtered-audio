@@ -85,7 +85,7 @@ class FuzzyWakeWordMatcher:
                     "remaining_text": " ".join(text_words[num_words:]),
                 }
             if distance == 0:
-                 break
+                break
 
         if best_match and best_distance <= self.threshold:
             return best_match
