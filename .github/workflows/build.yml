@@ -11,9 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: viamrobotics/build-action@v1
         with:
           version: ""  # Empty = build only, no deploy
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
           key-value: ${{ secrets.VIAM_DEV_API_KEY }}

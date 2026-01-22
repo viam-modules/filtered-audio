@@ -148,7 +148,7 @@ def test_validate_config_rejects_non_string_wake_words(mock_env):
 
 
 def test_validate_config_rejects_non_string_microphone(mock_env):
-    """Test validate_config raises error when wake_words contains non-strings"""
+    """Test validate_config raises error when microphone is non-string"""
     config = Mock()
     config.attributes = Mock()
 
@@ -164,7 +164,7 @@ def test_validate_config_rejects_non_string_microphone(mock_env):
 
 
 def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
-    """Test validate_config raises error when wake_words contains non-strings"""
+    """Test validate_config raises error when vad_agressiveness invalid"""
     config = Mock()
     config.attributes = Mock()
 
@@ -175,6 +175,51 @@ def test_validate_config_rejects_invalid_vad_aggressiveness(mock_env):
     }
 
     with pytest.raises(ValueError, match="vad_aggressiveness must be 0-3, got 4"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_vad_agressiveness(mock_env):
+    """Test validate_config raises error when vad_agressiveness not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "vad_aggressiveness": "4",
+    }
+
+    with pytest.raises(ValueError, match="vad_aggressiveness must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_fuzzy_threshold(mock_env):
+    """Test validate_config raises error when fuzzy_threshold not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "fuzzy_threshold": "5",
+    }
+
+    with pytest.raises(ValueError, match="fuzzy_threshold must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_invalid_fuzzy_threshold(mock_env):
+    """Test validate_config raises error when fuzzy_threshold not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot", "computer"],
+        "fuzzy_threshold": 7,
+    }
+
+    with pytest.raises(ValueError, match="fuzzy_threshold must be 0-5, got 7"):
         WakeWordFilter.validate_config(config)
 
 
@@ -367,6 +412,7 @@ def test_check_for_wake_word_detects_wake_word_at_start():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
@@ -415,6 +461,7 @@ def test_check_for_wake_word_handles_multiple_wake_words():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot", "computer", "hey assistant"]
+    wake_word_filter.fuzzy_matcher = None  # Exact matching
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
@@ -449,6 +496,7 @@ def test_check_for_wake_word_respects_word_boundaries():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
@@ -476,6 +524,7 @@ def test_check_for_wake_word_handles_vosk_errors():
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
     wake_word_filter.logger = Mock()
 
     with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:

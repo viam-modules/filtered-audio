@@ -1,4 +1,14 @@
-from typing import ClassVar, Mapping, Sequence, Tuple, cast, List, AsyncGenerator, Any
+from typing import (
+    ClassVar,
+    Mapping,
+    Sequence,
+    Tuple,
+    cast,
+    List,
+    AsyncGenerator,
+    Any,
+    Optional,
+)
 import asyncio
 import json
 import logging
@@ -8,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
+
+from .fuzzy_matcher import FuzzyWakeWordMatcher
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
@@ -39,6 +51,7 @@ class WakeWordFilter(AudioIn, EasyResource):
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
+    fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
 
     @classmethod
     def new(
@@ -62,6 +75,18 @@ class WakeWordFilter(AudioIn, EasyResource):
         vad_aggressiveness = int(
             attrs.get("vad_aggressiveness", DEFAULT_VAD_AGGRESSIVENESS)
         )
+
+        # Fuzzy matching - enabled if fuzzy_threshold is set
+        fuzzy_threshold = attrs.get("fuzzy_threshold", None)
+        if fuzzy_threshold is not None:
+            instance.fuzzy_matcher = FuzzyWakeWordMatcher(
+                threshold=int(fuzzy_threshold)
+            )
+            instance.logger.info(
+                f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
+            )
+        else:
+            instance.fuzzy_matcher = None
 
         # Initialize WebRTC VAD
         instance.vad = webrtcvad.Vad(vad_aggressiveness)
@@ -147,10 +172,27 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Validate VAD aggressiveness
         vad_aggressiveness: Any = attrs.get("vad_aggressiveness", None)
+        if vad_aggressiveness is not None:
+            if (
+                not isinstance(vad_aggressiveness, (int, float))
+                or vad_aggressiveness % 1 != 0
+            ):
+                raise ValueError("vad_aggressiveness must be a whole number")
         if vad_aggressiveness is not None and not 0 <= vad_aggressiveness <= 3:
             raise ValueError(
                 f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}"
             )
+
+        # Validate fuzzy threshold
+        fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
+        if fuzzy_threshold is not None:
+            if (
+                not isinstance(fuzzy_threshold, (int, float))
+                or fuzzy_threshold % 1 != 0
+            ):
+                raise ValueError("fuzzy_threshold must be a whole number")
+        if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
+            raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
 
         return deps, []
 
@@ -419,14 +461,24 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.logger.debug(f"Recognized text: '{text}'")
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
+                return False
 
-            # Check if any wake word appears at the start of the recognized text
             for wake_word in self.wake_words:
-                # Use word boundary at start to ensure wake word is first
-                pattern = rf"^\b{re.escape(wake_word)}\b"
-                if re.search(pattern, text):
-                    self.logger.info(f"Wake word '{wake_word}' detected")
-                    return True
+                if self.fuzzy_matcher:
+                    # Use fuzzy matching to match wake word
+                    match_details = self.fuzzy_matcher.match(text, wake_word)
+                    if match_details:
+                        self.logger.info(
+                            f"Wake word '{wake_word}' detected (fuzzy match: "
+                            f"'{match_details['matched_text']}', distance={match_details['distance']})"
+                        )
+                        return True
+                else:
+                    # search for exact wake word match at start of text
+                    pattern = rf"^\b{re.escape(wake_word)}\b"
+                    if re.search(pattern, text):
+                        self.logger.info(f"Wake word '{wake_word}' detected")
+                        return True
 
             return False
         except Exception as e:
