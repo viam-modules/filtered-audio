@@ -122,6 +122,8 @@ def _download_vosk_model(model_name, logger) -> str:
         Path to the model directory
     """
     data_path = os.getenv("VIAM_MODULE_DATA")
+    if not data_path:
+        raise RuntimeError("VIAM_MODULE_DATA environment variable not set")
 
     model_dir = os.path.join(data_path, model_name)
 
@@ -158,3 +160,4 @@ def _download_vosk_model(model_name, logger) -> str:
             zip_path.unlink()
 
     logger.info("Vosk model downloaded and extracted successfully")
+    return model_dir
