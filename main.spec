@@ -2,7 +2,9 @@
 
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [
+    ('vosk_models', 'vosk_models'),  # Bundled Vosk models
+]
 binaries = []
 hiddenimports = ['googleapiclient']
 

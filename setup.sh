@@ -1,6 +1,15 @@
 #!/bin/sh
 cd `dirname $0`
 
+# Install unzip if not present (needed for Vosk model extraction)
+if ! command -v unzip >/dev/null; then
+    echo "Installing unzip..."
+    if command -v apt-get >/dev/null; then
+        sudo apt-get update -qq
+        sudo apt-get install -y unzip
+    fi
+fi
+
 # Create a virtual environment to run our code
 VENV_NAME="venv"
 PYTHON="$VENV_NAME/bin/python"
