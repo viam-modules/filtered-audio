@@ -4,6 +4,8 @@ from src.models.vosk import (
     get_vosk_model,
     _get_bundled_models_dir,
     _extract_vosk_model,
+    _resolve_absolute_path,
+    _resolve_model_name,
 )
 
 
@@ -21,31 +23,66 @@ class TestGetBundledModelsDir:
 
     def test_uses_meipass_when_frozen(self):
         """Test uses sys._MEIPASS when running in PyInstaller bundle"""
-        with patch("src.models.vosk.sys") as mock_sys, \
-            patch("src.models.vosk.getattr", return_value=True), \
-            patch("src.models.vosk.hasattr", return_value=True):
+        with (
+            patch("src.models.vosk.sys") as mock_sys,
+            patch("src.models.vosk.getattr", return_value=True),
+            patch("src.models.vosk.hasattr", return_value=True),
+        ):
             mock_sys.frozen = True
             mock_sys._MEIPASS = "/tmp/pyinstaller_bundle"
 
             result = _get_bundled_models_dir()
 
-            assert (
-                "/tmp/pyinstaller_bundle" in result or "vosk_models" in result
-            )
+            assert "/tmp/pyinstaller_bundle" in result or "vosk_models" in result
 
 
 class TestGetVoskModel:
     """Tests for get_vosk_model()"""
+
+    def test_calls_resolve_absolute_path_for_absolute_paths(self):
+        """Test that absolute paths are delegated to _resolve_absolute_path"""
+        logger = Mock()
+        model_path = "/home/user/models/vosk-model-en-us-0.22"
+
+        with (
+            patch("src.models.vosk.os.path.expanduser", return_value=model_path),
+            patch("src.models.vosk.os.path.isabs", return_value=True),
+            patch("src.models.vosk._resolve_absolute_path") as mock_resolve,
+        ):
+            mock_resolve.return_value = model_path
+            result = get_vosk_model(model_path, logger)
+
+        mock_resolve.assert_called_once_with(model_path, logger)
+        assert result == model_path
+
+    def test_calls_resolve_model_name_for_model_names(self):
+        """Test that model names are delegated to _resolve_model_name"""
+        logger = Mock()
+        model_name = "vosk-model-small-en-us-0.15"
+        resolved_path = "/app/vosk_models/vosk-model-small-en-us-0.15"
+
+        with (
+            patch("src.models.vosk.os.path.expanduser", return_value=model_name),
+            patch("src.models.vosk.os.path.isabs", return_value=False),
+            patch("src.models.vosk._resolve_model_name") as mock_resolve,
+        ):
+            mock_resolve.return_value = resolved_path
+            result = get_vosk_model(model_name, logger)
+
+        mock_resolve.assert_called_once_with(model_name, logger)
+        assert result == resolved_path
+
+
+class TestResolveAbsolutePath:
+    """Tests for _resolve_absolute_path()"""
 
     def test_uses_absolute_path_directly(self):
         """Test that absolute directory paths are used directly"""
         logger = Mock()
         model_path = "/home/user/models/vosk-model-en-us-0.22"
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=model_path), \
-            patch("src.models.vosk.os.path.isabs", return_value=True), \
-            patch("src.models.vosk.os.path.exists", return_value=True):
-            result = get_vosk_model(model_path, logger)
+        with patch("src.models.vosk.os.path.exists", return_value=True):
+            result = _resolve_absolute_path(model_path, logger)
 
         assert result == model_path
         logger.info.assert_any_call(f"Using vosk model at path: {model_path}")
@@ -55,11 +92,11 @@ class TestGetVoskModel:
         logger = Mock()
         model_path = "/nonexistent/path/vosk-model"
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=model_path), \
-            patch("src.models.vosk.os.path.isabs", return_value=True), \
-            patch("src.models.vosk.os.path.exists", return_value=False), \
-            pytest.raises(RuntimeError, match="does not exist"):
-            get_vosk_model(model_path, logger)
+        with (
+            patch("src.models.vosk.os.path.exists", return_value=False),
+            pytest.raises(RuntimeError, match="does not exist"),
+        ):
+            _resolve_absolute_path(model_path, logger)
 
     def test_extracts_zip_file_path(self):
         """Test that zip file paths trigger extraction"""
@@ -67,14 +104,19 @@ class TestGetVoskModel:
         zip_path = "/home/user/downloads/vosk-model-en-us-0.22.zip"
         extracted_path = "/tmp/module-data/vosk-model-en-us-0.22"
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=zip_path), \
-            patch("src.models.vosk.os.path.isabs", return_value=True), \
-            patch("src.models.vosk.os.path.exists", return_value=True), \
-            patch("src.models.vosk._extract_vosk_model", return_value=extracted_path) as mock_extract:
-            result = get_vosk_model(zip_path, logger)
+        with (
+            patch("src.models.vosk.os.path.exists", return_value=True),
+            patch("src.models.vosk._extract_vosk_model") as mock_extract,
+        ):
+            mock_extract.return_value = extracted_path
+            result = _resolve_absolute_path(zip_path, logger)
 
         mock_extract.assert_called_once_with(zip_path, logger)
         assert result == extracted_path
+
+
+class TestResolveModelName:
+    """Tests for _resolve_model_name()"""
 
     def test_checks_bundled_models_first(self):
         """Test that bundled models are checked before cached or download"""
@@ -82,12 +124,13 @@ class TestGetVoskModel:
         model_name = "vosk-model-small-en-us-0.15"
         bundled_path = "/app/vosk_models/vosk-model-small-en-us-0.15"
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=model_name), \
-            patch("src.models.vosk.os.path.isabs", return_value=False), \
-            patch("src.models.vosk._get_bundled_models_dir", return_value="/app/vosk_models"), \
-            patch("src.models.vosk.os.path.exists", return_value=True), \
-            patch("src.models.vosk.os.path.join", return_value=bundled_path):
-            get_vosk_model(model_name, logger)
+        with (
+            patch("src.models.vosk._get_bundled_models_dir") as mock_bundled,
+            patch("src.models.vosk.os.path.join", return_value=bundled_path),
+            patch("src.models.vosk.os.path.exists", return_value=True),
+        ):
+            mock_bundled.return_value = "/app/vosk_models"
+            _resolve_model_name(model_name, logger)
 
         logger.info.assert_any_call("Found bundled vosk model")
 
@@ -100,13 +143,14 @@ class TestGetVoskModel:
             # Bundled doesn't exist, cached does
             return "module-data" in path
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=model_name), \
-            patch("src.models.vosk.os.path.isabs", return_value=False), \
-            patch("src.models.vosk._get_bundled_models_dir", return_value="/app/vosk_models"), \
-            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"), \
-            patch("src.models.vosk.os.path.exists", side_effect=exists_side_effect), \
-            patch("src.models.vosk.os.path.join", side_effect=lambda *args: "/".join(args)):
-            get_vosk_model(model_name, logger)
+        with (
+            patch("src.models.vosk._get_bundled_models_dir") as mock_bundled,
+            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"),
+            patch("src.models.vosk.os.path.exists", side_effect=exists_side_effect),
+            patch("src.models.vosk.os.path.join", side_effect=lambda *a: "/".join(a)),
+        ):
+            mock_bundled.return_value = "/app/vosk_models"
+            _resolve_model_name(model_name, logger)
 
         assert "Found cached model" in str(logger.info.call_args_list)
 
@@ -116,13 +160,15 @@ class TestGetVoskModel:
         model_name = "vosk-model-small-en-us-0.15"
         downloaded_path = "/tmp/module-data/vosk-model-small-en-us-0.15"
 
-        with patch("src.models.vosk.os.path.expanduser", return_value=model_name), \
-            patch("src.models.vosk.os.path.isabs", return_value=False), \
-            patch("src.models.vosk._get_bundled_models_dir", return_value="/app/vosk_models"), \
-            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"), \
-            patch("src.models.vosk.os.path.exists", return_value=False), \
-            patch("src.models.vosk._download_vosk_model", return_value=downloaded_path) as mock_download:
-            result = get_vosk_model(model_name, logger)
+        with (
+            patch("src.models.vosk._get_bundled_models_dir") as mock_bundled,
+            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"),
+            patch("src.models.vosk.os.path.exists", return_value=False),
+            patch("src.models.vosk._download_vosk_model") as mock_download,
+        ):
+            mock_bundled.return_value = "/app/vosk_models"
+            mock_download.return_value = downloaded_path
+            result = _resolve_model_name(model_name, logger)
 
         mock_download.assert_called_once_with(model_name, logger)
         assert result == downloaded_path
@@ -138,12 +184,19 @@ class TestExtractVoskModel:
 
         mock_zipfile = MagicMock()
 
-
-        with patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"), \
-            patch("src.models.vosk.os.path.basename", return_value="vosk-model-en-us-0.22.zip"), \
-            patch("src.models.vosk.os.path.exists", return_value=False), \
-            patch("src.models.vosk.os.path.join", return_value="/tmp/module-data/vosk-model-en-us-0.22"), \
-            patch("src.models.vosk.zipfile.ZipFile", return_value=mock_zipfile):
+        with (
+            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"),
+            patch(
+                "src.models.vosk.os.path.basename",
+                return_value="vosk-model-en-us-0.22.zip",
+            ),
+            patch("src.models.vosk.os.path.exists", return_value=False),
+            patch(
+                "src.models.vosk.os.path.join",
+                return_value="/tmp/module-data/vosk-model-en-us-0.22",
+            ),
+            patch("src.models.vosk.zipfile.ZipFile", return_value=mock_zipfile),
+        ):
             _extract_vosk_model(zip_path, logger)
 
         mock_zipfile.__enter__.return_value.extractall.assert_called_once_with(
@@ -156,10 +209,20 @@ class TestExtractVoskModel:
         logger = Mock()
         zip_path = "/downloads/vosk-model-en-us-0.22.zip"
 
-        with patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"), \
-            patch("src.models.vosk.os.path.basename", return_value="vosk-model-en-us-0.22.zip"), \
-            patch("src.models.vosk.os.path.exists", return_value=False), \
-            patch("src.models.vosk.os.path.join", return_value="/tmp/module-data/vosk-model-en-us-0.22"), \
-            patch("src.models.vosk.zipfile.ZipFile", side_effect=Exception("Zip error")), \
-            pytest.raises(RuntimeError, match="Failed to extract"):
+        with (
+            patch("src.models.vosk.os.getenv", return_value="/tmp/module-data"),
+            patch(
+                "src.models.vosk.os.path.basename",
+                return_value="vosk-model-en-us-0.22.zip",
+            ),
+            patch("src.models.vosk.os.path.exists", return_value=False),
+            patch(
+                "src.models.vosk.os.path.join",
+                return_value="/tmp/module-data/vosk-model-en-us-0.22",
+            ),
+            patch(
+                "src.models.vosk.zipfile.ZipFile", side_effect=Exception("Zip error")
+            ),
+            pytest.raises(RuntimeError, match="Failed to extract"),
+        ):
             _extract_vosk_model(zip_path, logger)

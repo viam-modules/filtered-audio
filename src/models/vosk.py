@@ -60,36 +60,21 @@ def _extract_vosk_model(zip_path, logger) -> str:
     return model_dir
 
 
-def get_vosk_model(model_name_or_path, logger) -> str:
-    """
-    Get Vosk model path.
+def _resolve_absolute_path(path, logger) -> str:
+    """Resolve an absolute path to a Vosk model."""
+    if not os.path.exists(path):
+        raise RuntimeError(f"Vosk model path does not exist: {path}")
 
-    If model_name_or_path is an absolute path, use it directly.
-    Otherwise, check bundled models, then cached, then download.
+    # If it's a zip file, extract it
+    if path.endswith(".zip"):
+        return _extract_vosk_model(path, logger)
 
-    Returns:
-        Path to the model directory
-    """
-    logger.info(f"Loading vosk model '{model_name_or_path}'...")
+    logger.info(f"Using vosk model at path: {path}")
+    return path
 
-    # Expand ~ to home directory
-    model_name_or_path = os.path.expanduser(model_name_or_path)
 
-    # If it's an absolute path, use it directly
-    if os.path.isabs(model_name_or_path):
-        if not os.path.exists(model_name_or_path):
-            raise RuntimeError(f"Vosk model path does not exist: {model_name_or_path}")
-
-        # If it's a zip file, extract it
-        if model_name_or_path.endswith(".zip"):
-            return _extract_vosk_model(model_name_or_path, logger)
-
-        logger.info(f"Using vosk model at path: {model_name_or_path}")
-        return model_name_or_path
-
-    # It's a model name, use the lookup logic
-    model_name = model_name_or_path
-
+def _resolve_model_name(model_name, logger) -> str:
+    """Resolve a model name by checking bundled, cached, then downloading."""
     # Check for bundled model (shipped with module)
     bundled_dir = _get_bundled_models_dir()
     bundled_path = os.path.join(bundled_dir, model_name)
@@ -108,6 +93,27 @@ def get_vosk_model(model_name_or_path, logger) -> str:
     # Download the model
     logger.info("Model not found locally, downloading...")
     return _download_vosk_model(model_name, logger)
+
+
+def get_vosk_model(model_name_or_path, logger) -> str:
+    """
+    Get Vosk model path.
+
+    If model_name_or_path is an absolute path, use it directly.
+    Otherwise, check bundled models, then cached, then download.
+
+    Returns:
+        Path to the model directory
+    """
+    logger.info(f"Loading vosk model '{model_name_or_path}'...")
+
+    # Expand ~ to home directory
+    model_name_or_path = os.path.expanduser(model_name_or_path)
+
+    if os.path.isabs(model_name_or_path):
+        return _resolve_absolute_path(model_name_or_path, logger)
+
+    return _resolve_model_name(model_name_or_path, logger)
 
 
 def _download_vosk_model(model_name, logger) -> str:
