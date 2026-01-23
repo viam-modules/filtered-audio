@@ -32,12 +32,8 @@ def mock_env():
         patch("src.models.wake_word_filter.webrtcvad.Vad") as mock_vad,
         patch("src.models.wake_word_filter.ThreadPoolExecutor") as mock_executor,
         patch(
-            "src.models.wake_word_filter.os.getenv", return_value="/tmp"
-        ) as mock_getenv,
-        patch(
-            "src.models.wake_word_filter.os.path.exists", return_value=True
-        ) as mock_exists,
-        patch("src.models.vosk.os.path.exists", return_value=True) as mock_vosk_exists,
+            "src.models.wake_word_filter.get_vosk_model", return_value="/tmp/vosk-model"
+        ) as mock_get_vosk,
         patch(
             "src.models.wake_word_filter.AudioIn.get_resource_name", return_value="mic1"
         ) as mock_resource,
@@ -47,9 +43,7 @@ def mock_env():
             "vosk": mock_vosk,
             "vad": mock_vad,
             "executor": mock_executor,
-            "getenv": mock_getenv,
-            "exists": mock_exists,
-            "vosk_exists": mock_vosk_exists,
+            "get_vosk_model": mock_get_vosk,
             "resource_name": mock_resource,
         }
 
@@ -314,8 +308,10 @@ def test_new_loads_vosk_model(mock_env):
     dependencies["mic1"] = mic
     WakeWordFilter.new(config, dependencies)
 
-    # Verify VoskModel was called with correct path
-    mock_env["vosk"].assert_called_once_with("/tmp/vosk-model-en-us-0.22")
+    # Verify get_vosk_model was called with the model name
+    mock_env["get_vosk_model"].assert_called_once()
+    # Verify VoskModel was called with the path returned by get_vosk_model
+    mock_env["vosk"].assert_called_once_with("/tmp/vosk-model")
 
 
 def test_new_sets_microphone_client(mock_env):
@@ -339,72 +335,57 @@ def test_new_sets_microphone_client(mock_env):
 # # Error case tests for WakeWordFilter.new()
 
 
-def test_new_fails_when_model_not_found_and_download_fails(mock_env):
-    """Test new() raises error when Vosk model doesn't exist and download fails"""
+def test_new_fails_when_get_vosk_model_fails(mock_env):
+    """Test new() raises error when get_vosk_model fails"""
     config = Mock()
     mic = AsyncMock()
-
-    # Model doesn't exist in both modules
-    mock_env["exists"].return_value = False
-    mock_env["vosk_exists"].return_value = False
 
     mock_env["struct_to_dict"].return_value = {
         "source_microphone": "mic1",
         "wake_words": ["robot"],
     }
 
-    dependencies = {"mic1": mic}
-
-    with patch(
-        "src.models.wake_word_filter.download_vosk_model",
-        side_effect=Exception("Download failed"),
-    ):
-        with pytest.raises(RuntimeError, match="Vosk model not found.*download failed"):
-            WakeWordFilter.new(config, dependencies)
-
-
-def test_new_downloads_model_when_not_found(mock_env):
-    """Test new() downloads Vosk model when it doesn't exist"""
-    config = Mock()
-    mic = AsyncMock()
-
-    # Model doesn't exist in both modules
-    mock_env["exists"].return_value = False
-    mock_env["vosk_exists"].return_value = False
-
-    mock_env["struct_to_dict"].return_value = {
-        "source_microphone": "mic1",
-        "wake_words": ["robot"],
-    }
+    # Make get_vosk_model raise an error
+    mock_env["get_vosk_model"].side_effect = RuntimeError("Model not found")
 
     dependencies = {"mic1": mic}
 
-    with patch(
-        "src.models.wake_word_filter.download_vosk_model",
-        return_value="/tmp/downloaded-model",
-    ) as mock_download:
+    with pytest.raises(RuntimeError, match="Model not found"):
         WakeWordFilter.new(config, dependencies)
 
-        # Verify download was called
-        mock_download.assert_called_once()
-        # Verify VoskModel was created with downloaded path
-        mock_env["vosk"].assert_called_once_with("/tmp/downloaded-model")
+
+def test_new_calls_get_vosk_model_with_model_name(mock_env):
+    """Test new() calls get_vosk_model with the configured model name"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "vosk_model": "vosk-model-en-us-0.22",
+    }
+
+    dependencies = {"mic1": mic}
+    WakeWordFilter.new(config, dependencies)
+
+    # Verify get_vosk_model was called with the model name
+    call_args = mock_env["get_vosk_model"].call_args
+    assert call_args[0][0] == "vosk-model-en-us-0.22"
 
 
 def test_new_handles_missing_microphone_in_dependencies(mock_env):
     """Test new() raises error when microphone not in dependencies"""
     config = Mock()
 
-    with patch("src.models.wake_word_filter.struct_to_dict") as mock_struct:
-        mock_struct.return_value = {
-            "source_microphone": "mic1",
-            "wake_words": ["robot"],
-        }
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
 
-        dependencies = {}  # Empty - no microphone!
+    dependencies = {}  # Empty - no microphone!
 
-        with pytest.raises(KeyError):
-            WakeWordFilter.new(config, dependencies)
+    with pytest.raises(KeyError):
+        WakeWordFilter.new(config, dependencies)
 
 
 def test_check_for_wake_word_detects_wake_word_at_start():

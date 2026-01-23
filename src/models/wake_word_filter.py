@@ -12,7 +12,6 @@ from typing import (
 import asyncio
 import json
 import logging
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from vosk import Model as VoskModel, KaldiRecognizer
@@ -29,10 +28,9 @@ from viam.resource.types import Model, ModelFamily
 from viam.utils import struct_to_dict
 from viam.streams import StreamWithIterator
 
-from .vosk import download_vosk_model
+from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 
 # Default configuration values
-DEFAULT_VOSK_MODEL = "vosk-model-small-en-us-0.15"
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
 MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
@@ -94,26 +92,8 @@ class WakeWordFilter(AudioIn, EasyResource):
             f"WebRTC VAD initialized with aggressiveness: {vad_aggressiveness}"
         )
 
-        # Load Vosk model (download if needed)
-        data_path = os.getenv("VIAM_MODULE_DATA")
-        if not data_path:
-            raise RuntimeError("VIAM_MODULE_DATA environment variable not set")
-
-        model_path = os.path.join(data_path, model)
-
-        # If path doesn't exist, try to download the model
-        if not os.path.exists(model_path):
-            instance.logger.info(
-                f"Vosk model not found at {model_path}, attempting download..."
-            )
-            try:
-                model_path = download_vosk_model(model, instance.logger)
-            except Exception as e:
-                instance.logger.error(f"Failed to download model: {e}")
-                raise RuntimeError(
-                    f"Vosk model not found at {model_path} and download failed: {e}"
-                )
-
+        # Load Vosk model (checks bundled, then cached, then downloads)
+        model_path = get_vosk_model(model, instance.logger)
         instance.vosk_model = VoskModel(model_path)
         instance.logger.debug("Vosk model loaded")
 
