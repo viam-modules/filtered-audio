@@ -141,12 +141,12 @@ async def main():
 
 
     opts = RobotClient.Options.with_api_key(
-        api_key='3td02koc3erzfyofi6rx2zu6uygeybay',
-        api_key_id='36b8d920-9271-4dd7-95da-17147a640591'
+        api_key='',
+        api_key_id=''
     )
 
 
-    robot = await RobotClient.at_address('lorawan-main.ytxdza0q92.viam.cloud', opts)
+    robot = await RobotClient.at_address('', opts)
 
     try:
         assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
