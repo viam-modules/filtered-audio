@@ -1,6 +1,6 @@
 # This script used for local development only.
 #!/bin/sh
-set -euo pipefail
+set -eu
 cd `dirname $0`
 
 # Create a virtual environment to run our code
