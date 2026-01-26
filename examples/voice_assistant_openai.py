@@ -160,12 +160,10 @@ async def main():
         return
 
     opts = RobotClient.Options.with_api_key(
-
-        api_key='5wdw52cd7qib36rlwd8f4089mohdnceg',
-
-        api_key_id='0e9ade16-4380-4626-8246-cde78b4da568'
+        api_key='',
+        api_key_id=''
     )
-    robot = await RobotClient.at_address('xarm-main.aqb785vhl4.viam.cloud', opts)
+    robot = await RobotClient.at_address('', opts)
 
     try:
         assistant = OpenAIVoiceAssistant(robot, "filter", "speaker")
