@@ -46,30 +46,26 @@ class OpenAIVoiceAssistant:
 
     def speech_to_text(self, audio_data: bytes, sample_rate: int = 16000) -> str:
         """Convert audio to text using Whisper."""
-        try:
-            # Add WAV header for raw PCM data
-            wav_buffer = BytesIO()
-            with wave.open(wav_buffer, "wb") as wav_file:
-                wav_file.setnchannels(1)
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(audio_data)
+        # Add WAV header for raw PCM data
+        wav_buffer = BytesIO()
+        with wave.open(wav_buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_data)
 
-            wav_buffer.seek(0)
-            wav_buffer.name = "audio.wav"
-
-            response = self.client.audio.transcriptions.create(
-                model="whisper-1",
-                file=wav_buffer,
-            )
-            return response.text
-        except Exception:
-            return ""
+        wav_buffer.seek(0)
+        wav_buffer.name = "audio.wav"
+        response = self.client.audio.transcriptions.create(
+            model="whisper-1",
+            file=wav_buffer,
+        )
+        return response.text
 
     def get_response(self, user_text: str) -> str:
         """Generate response using GPT."""
         if not user_text:
-            return "I didn't catch that."
+            return "I didn't catch that."s
 
         try:
             # Build messages for chat completion

@@ -45,11 +45,7 @@ class GeminiVoiceAssistant:
     def speech_to_text(self, audio_data: bytes, sample_rate: int = 16000) -> str:
         """Convert audio to text."""
         audio = sr.AudioData(audio_data, sample_rate, PCM16_SAMPLE_WIDTH)
-        try:
-            text = self.recognizer.recognize_google(audio)
-            return text
-        except:
-            return ""
+        return self.recognizer.recognize_google(audio)
 
     def get_response(self, user_text: str) -> str:
         """Generate response using Gemini."""
