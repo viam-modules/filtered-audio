@@ -3,6 +3,7 @@ Voice assistant using OpenAI Whisper, GPT, and OpenAI TTS.
 
 Requires: pip install viam-sdk openai
 Set environment variable: OPENAI_API_KEY
+generate openAI key: https://platform.openai.com/api-keys
 """
 
 import asyncio
