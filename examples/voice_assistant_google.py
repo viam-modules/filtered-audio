@@ -102,16 +102,17 @@ class GeminiVoiceAssistant:
                         # Empty chunk = segment ended, process it
                         if segment:
                             print(f"\nWake word detected! Processing {len(segment)} bytes...")
-
-                            user_text = self.speech_to_text(bytes(segment))
-
-                            if user_text:
-                                print(f"You: {user_text}")
-                                response_text = self.get_response(user_text)
-                                print(f"Bot: {response_text}")
-                                await self.speak(response_text)
-                            else:
-                                print("No speech recognized")
+                            try:
+                                user_text = self.speech_to_text(bytes(segment))
+                                if user_text:
+                                    print(f"You: {user_text}")
+                                    response_text = self.get_response(user_text)
+                                    print(f"Bot: {response_text}")
+                                    await self.speak(response_text)
+                                else:
+                                    print("No speech recognized")
+                            except Exception as e:
+                                print(f"Error processing speech: {e}")
 
                             segment.clear()
                             print("Listening for next wake word...\n")
