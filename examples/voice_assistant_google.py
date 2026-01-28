@@ -76,12 +76,19 @@ class GeminiVoiceAssistant:
             return "Sorry, I had trouble processing that."
 
     async def speak(self, text: str):
-        """Text to speech."""
+        """Text to speech with detection paused to avoid echo."""
         buffer = BytesIO()
         gTTS(text=text, lang=self.tts_lang).write_to_fp(buffer)
         mp3_data = buffer.getvalue()
         audio_info = AudioInfo(codec=AudioCodec.MP3)
-        await self.audioout.play(mp3_data, audio_info)
+
+        # Pause wake word detection during TTS playback
+        await self.filter.do_command({"pause_detection": None})
+        try:
+            await self.audioout.play(mp3_data, audio_info)
+        finally:
+            # Resume detection after playback
+            await self.filter.do_command({"resume_detection": None})
 
     async def run(self):
         """Continuously listen and respond."""
@@ -117,6 +124,8 @@ class GeminiVoiceAssistant:
                             else:
                                 print("No speech recognized")
 
+                            await self.speak("okay gambit hi gambit hey gambit gambit gambit")
+
                             segment.clear()
                             print("Listening for next wake word...\n")
                     else:
@@ -142,6 +151,7 @@ async def main():
 
     opts = RobotClient.Options.with_api_key(
         api_key='',
+
         api_key_id=''
     )
 

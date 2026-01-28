@@ -52,7 +52,8 @@ class WakeWordFilter(AudioIn, EasyResource):
     microphone_client: AudioIn
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
     silence_duration_ms: int
-    min_speech_duration_ms:int
+    min_speech_duration_ms: int
+    detection_paused: bool
 
     @classmethod
     def new(
@@ -128,6 +129,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise RuntimeError(
                 "wake-word-filter must have a source microphone, no microphone found"
             )
+
+        # Detection pause state (for muting during TTS playback)
+        instance.detection_paused = False
 
         return instance
 
@@ -326,14 +330,30 @@ class WakeWordFilter(AudioIn, EasyResource):
             speech_frames = 0  # Track how much speech we've heard
             frame_duration_ms = 30
             max_silence_frames = self.silence_duration_ms // frame_duration_ms
-            min_speech_frames =  self.min_speech_duration_ms // frame_duration_ms
+            min_speech_frames = self.min_speech_duration_ms // frame_duration_ms
 
+            def reset_buffers():
+                """Clear all buffers and reset speech state."""
+                nonlocal is_speech_active, silence_frames, speech_frames
+                speech_chunk_buffer.clear()
+                speech_buffer.clear()
+                audio_buffer.clear()
+                is_speech_active = False
+                silence_frames = 0
+                speech_frames = 0
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
                 if self.is_shutting_down:
                     self.logger.info("Stream ending due to shutdown")
                     break
+
+                # Skip processing when detection is paused (e.g., during TTS)
+                if self.detection_paused:
+                    # Clear any buffered speech to avoid stale data
+                    if speech_chunk_buffer or speech_buffer:
+                        reset_buffers()
+                    continue
 
                 audio_data = audio_chunk.audio.audio_data
 
@@ -413,13 +433,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             f"Ignoring false positive: only {speech_frames} frames detected"
                         )
 
-                    # Clear buffers either way
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
+                    reset_buffers()
 
                 # Prevent buffer from growing too large, process when it gets to max size
                 if len(speech_buffer) > MAX_BUFFER_SIZE_BYTES:
@@ -429,12 +443,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                     ):
                         yield chunk
 
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
+                    reset_buffers()
 
             # Process any remaining buffered audio when stream ends
             if speech_chunk_buffer and speech_frames >= min_speech_frames:
@@ -511,7 +520,29 @@ class WakeWordFilter(AudioIn, EasyResource):
     async def do_command(
         self, command: Mapping[str, Any], **kwargs
     ) -> Mapping[str, Any]:
-        raise NotImplementedError()
+        """
+        Handle commands for the wake word filter.
+
+        Supported commands:
+        - pause_detection: Pause wake word detection
+        - resume_detection: Resume wake word detection
+
+        Examples:
+            {"pause_detection": None}  # pause detection
+            {"resume_detection": None}    # resume detection
+        """
+        if "pause_detection" in command:
+            self.detection_paused = True
+            self.logger.info("Detection paused")
+            return {"status": "paused"}
+
+        elif "resume_detection" in command:
+            self.detection_paused = False
+            self.logger.info("Detection resumed")
+            return {"status": "resumed"}
+
+        else:
+            raise ValueError(f"Unknown command keys: {list(command.keys())}")
 
     async def get_geometries(self, **kwargs) -> List[Any]:
         raise NotImplementedError()
