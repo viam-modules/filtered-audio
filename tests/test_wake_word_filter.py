@@ -217,6 +217,67 @@ def test_validate_config_rejects_invalid_fuzzy_threshold(mock_env):
         WakeWordFilter.validate_config(config)
 
 
+def test_validate_config_rejects_non_int_silence_duration_ms(mock_env):
+    """Test validate_config raises error when silence_duration_ms not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": "500",
+    }
+
+    with pytest.raises(ValueError, match="silence_duration_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_min_speech_ms(mock_env):
+    """Test validate_config raises error when min_speech_ms not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": "300",
+    }
+
+    with pytest.raises(ValueError, match="min_speech_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+def test_validate_config_accepts_valid_silence_duration_ms(mock_env):
+    """Test validate_config accepts valid silence_duration_ms"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 1000,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_accepts_valid_min_speech_ms(mock_env):
+    """Test validate_config accepts valid min_speech_ms"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": 500,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
 # Tests for WakeWordFilter.new()
 
 
@@ -332,6 +393,74 @@ def test_new_sets_microphone_client(mock_env):
     assert instance.microphone_client == mic
 
 
+def test_new_uses_default_silence_duration_ms(mock_env):
+    """Test new() uses default silence_duration_ms when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 900ms
+    assert instance.silence_duration_ms == 900
+
+
+def test_new_uses_custom_silence_duration_ms(mock_env):
+    """Test new() uses custom silence_duration_ms when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 1200,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.silence_duration_ms == 1200
+
+
+def test_new_uses_default_min_speech_duration_ms(mock_env):
+    """Test new() uses default min_speech_duration_ms when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 300ms
+    assert instance.min_speech_duration_ms == 300
+
+
+def test_new_uses_custom_min_speech_duration_ms(mock_env):
+    """Test new() uses custom min_speech_ms when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "min_speech_ms": 500,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.min_speech_duration_ms == 500
+
+
 # # Error case tests for WakeWordFilter.new()
 
 
@@ -388,8 +517,8 @@ def test_new_handles_missing_microphone_in_dependencies(mock_env):
         WakeWordFilter.new(config, dependencies)
 
 
-def test_check_for_wake_word_detects_wake_word_at_start():
-    """Test check_for_wake_word returns True when wake word is at the start of audio"""
+def test_check_for_wake_word_detects_wake_word_anywhere():
+    """Test check_for_wake_word returns True when wake word is anywhere in audio"""
     wake_word_filter = Mock()
     wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
@@ -408,19 +537,19 @@ def test_check_for_wake_word_detects_wake_word_at_start():
         )
         assert result is True
 
-        # Wake word in middle - should not match
+        # Wake word in middle - should match
         mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
         result = WakeWordFilter._check_for_wake_word(
             wake_word_filter, b"\x00" * 1000, 16000
         )
-        assert result is False
+        assert result is True
 
-        # Wake word at end - should not match
+        # Wake word at end - should match
         mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
         result = WakeWordFilter._check_for_wake_word(
             wake_word_filter, b"\x00" * 1000, 16000
         )
-        assert result is False
+        assert result is True
 
         # No wake word - should not match
         mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'

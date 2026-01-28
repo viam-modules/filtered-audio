@@ -34,7 +34,8 @@ from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
 MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
-
+DEFAULT_SILENCE_DURATION_MS = 900  # milliseconds of silence before ending a speech segment
+DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -50,6 +51,8 @@ class WakeWordFilter(AudioIn, EasyResource):
     is_shutting_down: bool
     microphone_client: AudioIn
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
+    silence_duration_ms: int
+    min_speech_duration_ms:int
 
     @classmethod
     def new(
@@ -85,6 +88,18 @@ class WakeWordFilter(AudioIn, EasyResource):
             )
         else:
             instance.fuzzy_matcher = None
+
+        instance.silence_duration_ms = int(
+            attrs.get("silence_duration_ms", DEFAULT_SILENCE_DURATION_MS)
+        )
+        instance.logger.info(
+            f"VAD Silence duration: {instance.silence_duration_ms}ms"
+        )
+
+        instance.min_speech_duration_ms = int(attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS))
+        instance.logger.info(
+            f"min speech segment duration: {instance.min_speech_duration_ms}ms"
+        )
 
         # Initialize WebRTC VAD
         instance.vad = webrtcvad.Vad(vad_aggressiveness)
@@ -173,6 +188,24 @@ class WakeWordFilter(AudioIn, EasyResource):
                 raise ValueError("fuzzy_threshold must be a whole number")
         if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
             raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
+
+        # Validate silence_duration_ms
+        silence_duration_ms: Any = attrs.get("silence_duration_ms", None)
+        if silence_duration_ms is not None:
+            if (
+                not isinstance(silence_duration_ms, (int, float))
+                or silence_duration_ms % 1 != 0
+            ):
+                raise ValueError("silence_duration_ms must be a whole number")
+
+        # Validate min_speech_ms
+        min_speech_ms: Any = attrs.get("min_speech_ms", None)
+        if min_speech_ms is not None:
+            if (
+                not isinstance(min_speech_ms, (int, float))
+                or min_speech_ms % 1 != 0
+            ):
+                raise ValueError("min_speech_ms must be a whole number")
 
         return deps, []
 
@@ -291,10 +324,10 @@ class WakeWordFilter(AudioIn, EasyResource):
             is_speech_active = False
             silence_frames = 0
             speech_frames = 0  # Track how much speech we've heard
-            max_silence_frames = 30  # ~1 second of silence to end speech segment
-            min_speech_frames = (
-                10  # Require at least 300ms of speech (~10 frames @ 30ms each)
-            )
+            frame_duration_ms = 30
+            max_silence_frames = self.silence_duration_ms // frame_duration_ms
+            min_speech_frames =  self.min_speech_duration_ms // frame_duration_ms
+
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
@@ -431,7 +464,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             bool: True if any wake word detected
         """
         try:
-            recognizer = KaldiRecognizer(self.vosk_model, sample_rate)
+            # Use grammar to constrain recognition to wake words for better accuracy
+            grammar = json.dumps(self.wake_words)
+            recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
             recognizer.AcceptWaveform(audio_bytes)
             result = json.loads(recognizer.FinalResult())
 
@@ -454,8 +489,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                         )
                         return True
                 else:
-                    # search for exact wake word match at start of text
-                    pattern = rf"^\b{re.escape(wake_word)}\b"
+                    # search for wake word match
+                    pattern = rf"\b{re.escape(wake_word)}\b"
                     if re.search(pattern, text):
                         self.logger.info(f"Wake word '{wake_word}' detected")
                         return True
