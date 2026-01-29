@@ -532,15 +532,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                     return False
 
             if text:
-                self.logger.debug("Recognized text: '%s'", text)
+                self.logger.debug(f"Recognized: '{text}'")
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
                 return False
 
-            self.logger.debug(f"Recognized: '{text}'")
-
             for wake_word in self.wake_words:
-                if self.fuzzy_matcher:
+                if self.fuzzy_matcher and not self.use_grammar:
                     match_details = self.fuzzy_matcher.match(text, wake_word)
                     if match_details:
                         self.logger.info(

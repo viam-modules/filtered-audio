@@ -124,8 +124,6 @@ class GeminiVoiceAssistant:
                             else:
                                 print("No speech recognized")
 
-                            await self.speak("okay gambit hi gambit hey gambit gambit gambit")
-
                             segment.clear()
                             print("Listening for next wake word...\n")
                     else:
@@ -151,7 +149,6 @@ async def main():
 
     opts = RobotClient.Options.with_api_key(
         api_key='',
-
         api_key_id=''
     )
 
