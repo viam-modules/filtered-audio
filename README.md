@@ -38,7 +38,8 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 | `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise as speech. Range: 0-3. Default: 3.
 | `fuzzy_threshold` | int | **Optional** | Enable fuzzy wake word matching. The threshold (0-5) is the maximum number of character edits (insertions, deletions, substitutions) allowed between the transcript and wake word. If not set, exact matching is used.
 | `silence_duration_ms` | int | **Optional** | Milliseconds of continuous silence needed before speech is considered finished. Default: 900
-| `min_speech_ms` | int | **Optional** | The minimum length (in milliseconds) a speech segment must be before it is treated as valid speech. Shorter sounds are ignored.. Default: 300
+| `min_speech_ms` | int | **Optional** | The minimum length (in milliseconds) a speech segment must be before it is treated as valid speech. Shorter sounds are ignored. Default: 300
+| `use_grammar` | bool | **Optional** | When true, Vosk uses grammar-constrained recognition limited to wake words for better accuracy. When false, uses full transcription mode. Default: true
 
 
 ### Source Microphone Requirements

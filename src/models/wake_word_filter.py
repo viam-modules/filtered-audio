@@ -52,7 +52,8 @@ class WakeWordFilter(AudioIn, EasyResource):
     microphone_client: AudioIn
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
     silence_duration_ms: int
-    min_speech_duration_ms:int
+    min_speech_duration_ms: int
+    use_grammar: bool
 
     @classmethod
     def new(
@@ -99,6 +100,12 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.min_speech_duration_ms = int(attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS))
         instance.logger.info(
             f"min speech segment duration: {instance.min_speech_duration_ms}ms"
+        )
+
+        # Grammar mode - default True for constrained wake word recognition
+        instance.use_grammar = attrs.get("use_grammar", True)
+        instance.logger.info(
+            f"Vosk grammar mode: {instance.use_grammar}"
         )
 
         # Initialize WebRTC VAD
@@ -206,6 +213,12 @@ class WakeWordFilter(AudioIn, EasyResource):
                 or min_speech_ms % 1 != 0
             ):
                 raise ValueError("min_speech_ms must be a whole number")
+
+        # Validate use_grammar
+        use_grammar: Any = attrs.get("use_grammar", None)
+        if use_grammar is not None:
+            if not isinstance(use_grammar, bool):
+                raise ValueError("use_grammar must be a boolean")
 
         return deps, []
 
@@ -464,32 +477,35 @@ class WakeWordFilter(AudioIn, EasyResource):
             bool: True if any wake word detected
         """
         try:
-            # Use grammar to constrain recognition to wake words for better accuracy
-            grammar = json.dumps(self.wake_words)
-            recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
+            if self.use_grammar:
+                # Grammar mode: constrain recognition to only wake words
+                grammar = json.dumps(self.wake_words)
+                recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
+            else:
+                # Full transcription mode: recognize all speech
+                recognizer = KaldiRecognizer(self.vosk_model, sample_rate)
+
             recognizer.AcceptWaveform(audio_bytes)
             result = json.loads(recognizer.FinalResult())
-
             text = result.get("text", "").lower()
 
-            if text:
-                self.logger.debug(f"Recognized text: '{text}'")
-            else:
-                self.logger.debug("Vosk returned empty text, no speech recognized")
+            if not text:
+                self.logger.debug("Vosk returned empty text")
                 return False
+
+            self.logger.debug(f"Recognized: '{text}'")
 
             for wake_word in self.wake_words:
                 if self.fuzzy_matcher:
-                    # Use fuzzy matching to match wake word
                     match_details = self.fuzzy_matcher.match(text, wake_word)
                     if match_details:
                         self.logger.info(
-                            f"Wake word '{wake_word}' detected (fuzzy match: "
-                            f"'{match_details['matched_text']}', distance={match_details['distance']})"
+                            f"Wake word '{wake_word}' detected (fuzzy: "
+                            f"'{match_details['matched_text']}', "
+                            f"distance={match_details['distance']})"
                         )
                         return True
                 else:
-                    # search for wake word match
                     pattern = rf"\b{re.escape(wake_word)}\b"
                     if re.search(pattern, text):
                         self.logger.info(f"Wake word '{wake_word}' detected")
