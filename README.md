@@ -36,11 +36,12 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 | `wake_words` | string array | **Required** | Wake words to filter speech. All speech segments said after the wake words will be returned from get_audio.
 | `vosk_model` | string | **Optional** | Vosk model to use for speech recognition. Accepts a model name, directory path, or zip file path. Default: `vosk-model-small-en-us-0.15`. See [list](https://alphacephei.com/vosk/models) of available models. For models larger than 1GB, download manually and provide the file path.
 | `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise as speech. Range: 0-3. Default: 3.
-| `fuzzy_threshold` | int | **Optional** | Enable fuzzy wake word matching. The threshold (0-5) is the maximum number of character edits (insertions, deletions, substitutions) allowed between the transcript and wake word. If not set, exact matching is used.
 | `silence_duration_ms` | int | **Optional** | Milliseconds of continuous silence needed before speech is considered finished. Default: 900
 | `min_speech_ms` | int | **Optional** | The minimum length (in milliseconds) a speech segment must be before it is treated as valid speech. Shorter sounds are ignored. Default: 300
 | `use_grammar` | bool | **Optional** | When true, Vosk uses grammar-constrained recognition limited to wake words for better accuracy. When false, uses full transcription mode. Default: true
 | `vosk_grammar_confidence` | float | **Optional** | Minimum confidence threshold (0.0-1.0) for wake word recognition. Lower confidence matches will be rejected. Default: 0.7
+| `fuzzy_threshold` | int | **Optional** | Enable fuzzy wake word matching. The threshold (0-5) is the maximum number of character edits (insertions, deletions, substitutions) allowed between the transcript and wake word. If not set, exact matching is used.
+Note use_grammar must be set to false to use fuzzy matching.
 
 
 ### Source Microphone Requirements
