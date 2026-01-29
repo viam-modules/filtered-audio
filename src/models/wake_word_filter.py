@@ -217,6 +217,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                 or silence_duration_ms % 1 != 0
             ):
                 raise ValueError("silence_duration_ms must be a whole number")
+            if silence_duration_ms <= 0:
+                raise ValueError("silence_duration_ms must be positive")
 
         # Validate min_speech_ms
         min_speech_ms: Any = attrs.get("min_speech_ms", None)
@@ -226,6 +228,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                 or min_speech_ms % 1 != 0
             ):
                 raise ValueError("min_speech_ms must be a whole number")
+            if min_speech_ms <= 0:
+                raise ValueError("min_speech_ms must be positive")
 
         # Validate use_grammar
         use_grammar: Any = attrs.get("use_grammar", None)
