@@ -39,6 +39,7 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 | `fuzzy_threshold` | int | **Optional** | Enable fuzzy wake word matching. The threshold (0-5) is the maximum number of character edits (insertions, deletions, substitutions) allowed between the transcript and wake word. If not set, exact matching is used.
 | `silence_duration_ms` | int | **Optional** | Milliseconds of continuous silence needed before speech is considered finished. Default: 900
 | `min_speech_ms` | int | **Optional** | The minimum length (in milliseconds) a speech segment must be before it is treated as valid speech. Shorter sounds are ignored. Default: 300
+| `use_grammar` | bool | **Optional** | When true, Vosk uses grammar-constrained recognition limited to wake words for better accuracy. When false, uses full transcription mode. Default: true
 | `vosk_grammar_confidence` | float | **Optional** | Minimum confidence threshold (0.0-1.0) for wake word recognition. Lower confidence matches will be rejected. Default: 0.7
 
 
