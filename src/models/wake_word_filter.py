@@ -33,7 +33,7 @@ from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 # Default configuration values
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
-MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
+MAX_BUFFER_SIZE_BYTES = 480000  # ~15 seconds at 16kHz
 DEFAULT_SILENCE_DURATION_MS = 900  # milliseconds of silence before ending a speech segment
 DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
 DEFAULT_GRAMMAR_CONFIDENCE = 0.7  # min confidence for Vosk grammar matches (0.0-1.0)
@@ -551,10 +551,16 @@ class WakeWordFilter(AudioIn, EasyResource):
                         return True
                 else:
                     pattern = rf"\b{re.escape(wake_word)}\b"
-                    if re.search(pattern, text):
-                        self.logger.info(f"Wake word '{wake_word}' detected")
+                    match = re.search(pattern, text)
+                    self.logger.debug(
+                        "Checking wake_word='%s' pattern='%s' against text='%s' -> %s",
+                        wake_word, pattern, text, match
+                    )
+                    if match:
+                        self.logger.info("Wake word '%s' detected", wake_word)
                         return True
 
+            self.logger.debug("No wake word match found")
             return False
         except Exception as e:
             self.logger.error(f"Vosk error: {e}", exc_info=True)
