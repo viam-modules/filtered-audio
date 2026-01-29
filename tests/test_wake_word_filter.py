@@ -278,6 +278,67 @@ def test_validate_config_accepts_valid_min_speech_ms(mock_env):
     assert not errors
 
 
+def test_validate_config_rejects_non_number_grammar_confidence(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence not a number"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": "0.7",
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be a number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_grammar_confidence_too_low(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence below 0"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": -0.1,
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be 0.0-1.0"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_grammar_confidence_too_high(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence above 1"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 1.5,
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be 0.0-1.0"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_valid_grammar_confidence(mock_env):
+    """Test validate_config accepts valid vosk_grammar_confidence"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 0.8,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
 # Tests for WakeWordFilter.new()
 
 
@@ -459,6 +520,40 @@ def test_new_uses_custom_min_speech_duration_ms(mock_env):
     instance = WakeWordFilter.new(config, dependencies)
 
     assert instance.min_speech_duration_ms == 500
+
+
+def test_new_uses_default_grammar_confidence(mock_env):
+    """Test new() uses defaultvosk_grammar_confidence when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 0.7
+    assert instance.grammar_confidence == 0.7
+
+
+def test_new_uses_custom_grammar_confidence(mock_env):
+    """Test new() uses custom vosk_grammar_confidence when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 0.85,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.grammar_confidence == 0.85
 
 
 # # Error case tests for WakeWordFilter.new()

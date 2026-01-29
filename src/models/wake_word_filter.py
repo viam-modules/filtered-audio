@@ -36,6 +36,7 @@ AUDIO_SAMPLE_RATE_HZ = 16000
 MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
 DEFAULT_SILENCE_DURATION_MS = 900  # milliseconds of silence before ending a speech segment
 DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
+DEFAULT_GRAMMAR_CONFIDENCE = 0.7  # min confidence for Vosk grammar matches (0.0-1.0)
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -54,6 +55,7 @@ class WakeWordFilter(AudioIn, EasyResource):
     silence_duration_ms: int
     min_speech_duration_ms: int
     detection_paused: bool
+    grammar_confidence: float
 
     @classmethod
     def new(
@@ -100,6 +102,13 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.min_speech_duration_ms = int(attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS))
         instance.logger.info(
             f"min speech segment duration: {instance.min_speech_duration_ms}ms"
+        )
+
+        instance.grammar_confidence = float(
+            attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
+        )
+        instance.logger.info(
+            "Vosk grammar confidence threshold: %.2f", instance.grammar_confidence
         )
 
         # Initialize WebRTC VAD
@@ -210,6 +219,16 @@ class WakeWordFilter(AudioIn, EasyResource):
                 or min_speech_ms % 1 != 0
             ):
                 raise ValueError("min_speech_ms must be a whole number")
+
+        # Validate grammar_confidence
+        grammar_confidence: Any = attrs.get("vosk_grammar_confidence", None)
+        if grammar_confidence is not None:
+            if not isinstance(grammar_confidence, (int, float)):
+                raise ValueError("vosk_grammar_confidence must be a number")
+            if grammar_confidence < 0.0 or grammar_confidence > 1.0:
+                raise ValueError(
+                    f"vosk_grammar_confidence must be 0.0-1.0, got {grammar_confidence}"
+                )
 
         return deps, []
 
@@ -476,13 +495,26 @@ class WakeWordFilter(AudioIn, EasyResource):
             # Use grammar to constrain recognition to wake words for better accuracy
             grammar = json.dumps(self.wake_words)
             recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
+            recognizer.SetWords(True)  # Enable word-level confidence scores
             recognizer.AcceptWaveform(audio_bytes)
             result = json.loads(recognizer.FinalResult())
 
             text = result.get("text", "").lower()
 
+            # Check confidence to reduce false positives from grammar forcing
+            if "result" in result and result["result"]:
+                avg_conf = sum(w.get("conf", 1.0) for w in result["result"])
+                avg_conf /= len(result["result"])
+                self.logger.debug("Vosk confidence: %.2f", avg_conf)
+                if avg_conf < self.grammar_confidence:
+                    self.logger.debug(
+                        "Rejecting low confidence: '%s' (conf=%.2f < %.2f)",
+                        text, avg_conf, self.grammar_confidence
+                    )
+                    return False
+
             if text:
-                self.logger.debug(f"Recognized text: '{text}'")
+                self.logger.debug("Recognized text: '%s'", text)
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
                 return False
