@@ -519,6 +519,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             text = result.get("text", "").lower()
 
             # Check confidence to reduce false positives from grammar forcing
+            self.logger.debug("Vosk result: %s", result)
             if "result" in result and result["result"]:
                 avg_conf = sum(w.get("conf", 1.0) for w in result["result"])
                 avg_conf /= len(result["result"])
