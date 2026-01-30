@@ -54,7 +54,7 @@ class WakeWordFilter(AudioIn, EasyResource):
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
     silence_duration_ms: int
     min_speech_duration_ms:  int
-    detection_paused: bool
+    detection_running: bool
     grammar_confidence: float
     use_grammar: bool
 
@@ -147,7 +147,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             )
 
         # Detection pause state (for muting during TTS playback)
-        instance.detection_paused = False
+        instance.detection_running = True
 
         return instance
 
@@ -385,7 +385,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                     break
 
                 # Skip processing when detection is paused (e.g., during TTS)
-                if self.detection_paused:
+                if not self.detection_running:
                     # Clear any buffered speech to avoid stale data
                     if speech_chunk_buffer or speech_buffer:
                         reset_buffers()
@@ -591,12 +591,12 @@ class WakeWordFilter(AudioIn, EasyResource):
             {"resume_detection": None}    # resume detection
         """
         if "pause_detection" in command:
-            self.detection_paused = True
+            self.detection_running = False
             self.logger.info("Detection paused")
             return {"status": "paused"}
 
         elif "resume_detection" in command:
-            self.detection_paused = False
+            self.detection_running =True
             self.logger.info("Detection resumed")
             return {"status": "resumed"}
 
