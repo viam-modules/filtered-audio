@@ -428,6 +428,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                         silence_frames = 0
                         speech_frames += 1
 
+                        # Check buffer limit before adding frame
+                        if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
+                            should_process = True
+                            break
+
                         # Buffer this speech frame
                         if not chunk_added:
                             speech_chunk_buffer.append(audio_chunk)
@@ -435,6 +440,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_buffer.extend(frame)
                     else:
                         if is_speech_active:
+                            # Check buffer limit before adding frame
+                            if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
+                                should_process = True
+                                break
+
                             # Buffer silence frames during active speech segment
                             if not chunk_added:
                                 speech_chunk_buffer.append(audio_chunk)
@@ -453,12 +463,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # Remove the frame we just processed
                     audio_buffer = audio_buffer[frame_size:]
 
-                # If speech segment ended, check for wake word
+                # If speech segment ended or buffer limit reached, check for wake word
                 if should_process:
                     # Only process if we had enough speech (filters out brief false positives)
                     if speech_frames >= min_speech_frames:
                         self.logger.debug(
-                            f"Speech segment ended ({speech_frames} frames), checking for wake word"
+                            "Speech segment ended (%d frames, %d bytes)",
+                            speech_frames, len(speech_buffer)
                         )
                         async for chunk in self._process_speech_segment(
                             speech_chunk_buffer, speech_buffer
@@ -466,12 +477,12 @@ class WakeWordFilter(AudioIn, EasyResource):
                             yield chunk
                     else:
                         self.logger.debug(
-                            f"Ignoring false positive: only {speech_frames} frames detected"
+                            "Ignoring false positive: only %d frames", speech_frames
                         )
 
                     reset_buffers()
 
-                # Prevent buffer from growing too large, process at max size (500 frames)
+                # Secondary check (shouldn't be needed but safety)
                 if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
                     self.logger.debug("Processing speech segment")
                     async for chunk in self._process_speech_segment(
