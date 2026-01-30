@@ -48,12 +48,13 @@ class WakeWordFilter(AudioIn, EasyResource):
     wake_words: List[str]
     vad: webrtcvad.Vad
     vosk_model: VoskModel
+    recognizer: KaldiRecognizer
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
     silence_duration_ms: int
-    min_speech_duration_ms:  int
+    min_speech_duration_ms: int
     detection_running: bool
     grammar_confidence: float
     use_grammar: bool
@@ -128,6 +129,19 @@ class WakeWordFilter(AudioIn, EasyResource):
         model_path = get_vosk_model(model, instance.logger)
         instance.vosk_model = VoskModel(model_path)
         instance.logger.debug("Vosk model loaded")
+
+        # Create recognizer (reused for each wake word check)
+        if instance.use_grammar and instance.wake_words:
+            grammar = json.dumps(instance.wake_words)
+            instance.recognizer = KaldiRecognizer(
+                instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
+            )
+        else:
+            instance.recognizer = KaldiRecognizer(
+                instance.vosk_model, AUDIO_SAMPLE_RATE_HZ
+            )
+        instance.recognizer.SetWords(True)  # Enable word-level confidence scores
+        instance.logger.debug("Vosk recognizer initialized")
 
         # Create thread pool for Vosk processing (non-blocking)
         instance.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vosk")
@@ -272,7 +286,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.executor,
                 self._check_for_wake_word,
                 bytes(speech_buffer),
-                AUDIO_SAMPLE_RATE_HZ,
             )
 
             if wake_word_detected:
@@ -508,29 +521,19 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return StreamWithIterator(audio_generator())
 
-    def _check_for_wake_word(self, audio_bytes: bytes, sample_rate: int) -> bool:
+    def _check_for_wake_word(self, audio_bytes: bytes) -> bool:
         """
         Check if any wake word is in audio.
 
         Args:
             audio_bytes: Raw PCM16 audio data
-            sample_rate: Audio sample rate
 
         Returns:
             bool: True if any wake word detected
         """
         try:
-            if self.use_grammar:
-                # Grammar mode: constrain recognition to only wake words
-                grammar = json.dumps(self.wake_words)
-                recognizer = KaldiRecognizer(self.vosk_model, sample_rate, grammar)
-            else:
-                # Full transcription mode: recognize all speech
-                recognizer = KaldiRecognizer(self.vosk_model, sample_rate)
-
-            recognizer.SetWords(True)  # Enable word-level confidence scores
-            recognizer.AcceptWaveform(audio_bytes)
-            result = json.loads(recognizer.FinalResult())
+            self.recognizer.AcceptWaveform(audio_bytes)
+            result = json.loads(self.recognizer.FinalResult())
             text = result.get("text", "").lower()
 
             # Check confidence to reduce false positives from grammar forcing
@@ -563,6 +566,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                         )
                         return True
                 else:
+                    # checking whole return phrase for wake word
                     pattern = rf"\b{re.escape(wake_word)}\b"
                     match = re.search(pattern, text)
                     self.logger.debug(
