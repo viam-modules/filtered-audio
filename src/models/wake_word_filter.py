@@ -33,8 +33,10 @@ from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 # Default configuration values
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
-MAX_BUFFER_SIZE_BYTES = 500000  # ~15 seconds at 16kHz
-
+MAX_BUFFER_SIZE_BYTES = 480000  # ~15 seconds at 16kHz
+DEFAULT_SILENCE_DURATION_MS = 900  # milliseconds of silence before ending a speech segment
+DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
+DEFAULT_GRAMMAR_CONFIDENCE = 0.7  # min confidence for Vosk grammar matches (0.0-1.0)
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -46,10 +48,16 @@ class WakeWordFilter(AudioIn, EasyResource):
     wake_words: List[str]
     vad: webrtcvad.Vad
     vosk_model: VoskModel
+    recognizer: KaldiRecognizer
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
     fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
+    silence_duration_ms: int
+    min_speech_duration_ms: int
+    detection_running: bool
+    grammar_confidence: float
+    use_grammar: bool
 
     @classmethod
     def new(
@@ -86,6 +94,31 @@ class WakeWordFilter(AudioIn, EasyResource):
         else:
             instance.fuzzy_matcher = None
 
+        instance.silence_duration_ms = int(
+            attrs.get("silence_duration_ms", DEFAULT_SILENCE_DURATION_MS)
+        )
+        instance.logger.info(
+            f"VAD Silence duration: {instance.silence_duration_ms}ms"
+        )
+
+        instance.min_speech_duration_ms = int(attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS))
+        instance.logger.info(
+            f"min speech segment duration: {instance.min_speech_duration_ms}ms"
+        )
+
+        # Grammar mode - default True for constrained wake word recognition
+        instance.use_grammar = attrs.get("use_grammar", True)
+        instance.logger.info(
+            f"Vosk grammar mode: {instance.use_grammar}"
+        )
+
+        instance.grammar_confidence = float(
+            attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
+        )
+        instance.logger.info(
+            "Vosk grammar confidence threshold: %.2f", instance.grammar_confidence
+        )
+
         # Initialize WebRTC VAD
         instance.vad = webrtcvad.Vad(vad_aggressiveness)
         instance.logger.info(
@@ -96,6 +129,19 @@ class WakeWordFilter(AudioIn, EasyResource):
         model_path = get_vosk_model(model, instance.logger)
         instance.vosk_model = VoskModel(model_path)
         instance.logger.debug("Vosk model loaded")
+
+        # Create recognizer (reused for each wake word check)
+        if instance.use_grammar and instance.wake_words:
+            grammar = json.dumps(instance.wake_words)
+            instance.recognizer = KaldiRecognizer(
+                instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
+            )
+        else:
+            instance.recognizer = KaldiRecognizer(
+                instance.vosk_model, AUDIO_SAMPLE_RATE_HZ
+            )
+        instance.recognizer.SetWords(True)  # Enable word-level confidence scores
+        instance.logger.debug("Vosk recognizer initialized")
 
         # Create thread pool for Vosk processing (non-blocking)
         instance.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vosk")
@@ -113,6 +159,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise RuntimeError(
                 "wake-word-filter must have a source microphone, no microphone found"
             )
+
+        # Detection pause state (for muting during TTS playback)
+        instance.detection_running = True
 
         return instance
 
@@ -174,6 +223,44 @@ class WakeWordFilter(AudioIn, EasyResource):
         if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
             raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
 
+        # Validate silence_duration_ms
+        silence_duration_ms: Any = attrs.get("silence_duration_ms", None)
+        if silence_duration_ms is not None:
+            if (
+                not isinstance(silence_duration_ms, (int, float))
+                or silence_duration_ms % 1 != 0
+            ):
+                raise ValueError("silence_duration_ms must be a whole number")
+            if silence_duration_ms <= 0:
+                raise ValueError("silence_duration_ms must be positive")
+
+        # Validate min_speech_ms
+        min_speech_ms: Any = attrs.get("min_speech_ms", None)
+        if min_speech_ms is not None:
+            if (
+                not isinstance(min_speech_ms, (int, float))
+                or min_speech_ms % 1 != 0
+            ):
+                raise ValueError("min_speech_ms must be a whole number")
+            if min_speech_ms <= 0:
+                raise ValueError("min_speech_ms must be positive")
+
+        # Validate use_grammar
+        use_grammar: Any = attrs.get("use_grammar", None)
+        if use_grammar is not None:
+            if not isinstance(use_grammar, bool):
+                raise ValueError("use_grammar must be a boolean")
+
+        # Validate grammar_confidence
+        grammar_confidence: Any = attrs.get("vosk_grammar_confidence", None)
+        if grammar_confidence is not None:
+            if not isinstance(grammar_confidence, (int, float)):
+                raise ValueError("vosk_grammar_confidence must be a number")
+            if grammar_confidence < 0.0 or grammar_confidence > 1.0:
+                raise ValueError(
+                    f"vosk_grammar_confidence must be 0.0-1.0, got {grammar_confidence}"
+                )
+
         return deps, []
 
     async def _process_speech_segment(
@@ -199,7 +286,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                 self.executor,
                 self._check_for_wake_word,
                 bytes(speech_buffer),
-                AUDIO_SAMPLE_RATE_HZ,
             )
 
             if wake_word_detected:
@@ -291,16 +377,32 @@ class WakeWordFilter(AudioIn, EasyResource):
             is_speech_active = False
             silence_frames = 0
             speech_frames = 0  # Track how much speech we've heard
-            max_silence_frames = 30  # ~1 second of silence to end speech segment
-            min_speech_frames = (
-                10  # Require at least 300ms of speech (~10 frames @ 30ms each)
-            )
+            frame_duration_ms = 30
+            max_silence_frames = self.silence_duration_ms // frame_duration_ms
+            min_speech_frames = self.min_speech_duration_ms // frame_duration_ms
+
+            def reset_buffers():
+                """Clear all buffers and reset speech state."""
+                nonlocal is_speech_active, silence_frames, speech_frames
+                speech_chunk_buffer.clear()
+                speech_buffer.clear()
+                audio_buffer.clear()
+                is_speech_active = False
+                silence_frames = 0
+                speech_frames = 0
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
                 if self.is_shutting_down:
                     self.logger.info("Stream ending due to shutdown")
                     break
+
+                # Skip processing when detection is paused (e.g., during TTS)
+                if not self.detection_running:
+                    # Clear any buffered speech to avoid stale data
+                    if speech_chunk_buffer or speech_buffer:
+                        reset_buffers()
+                    continue
 
                 audio_data = audio_chunk.audio.audio_data
 
@@ -339,6 +441,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                         silence_frames = 0
                         speech_frames += 1
 
+                        # Check buffer limit before adding frame
+                        if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
+                            should_process = True
+                            break
+
                         # Buffer this speech frame
                         if not chunk_added:
                             speech_chunk_buffer.append(audio_chunk)
@@ -346,6 +453,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_buffer.extend(frame)
                     else:
                         if is_speech_active:
+                            # Check buffer limit before adding frame
+                            if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
+                                should_process = True
+                                break
+
                             # Buffer silence frames during active speech segment
                             if not chunk_added:
                                 speech_chunk_buffer.append(audio_chunk)
@@ -364,12 +476,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # Remove the frame we just processed
                     audio_buffer = audio_buffer[frame_size:]
 
-                # If speech segment ended, check for wake word
+                # If speech segment ended or buffer limit reached, check for wake word
                 if should_process:
                     # Only process if we had enough speech (filters out brief false positives)
                     if speech_frames >= min_speech_frames:
                         self.logger.debug(
-                            f"Speech segment ended ({speech_frames} frames), checking for wake word"
+                            "Speech segment ended (%d frames, %d bytes)",
+                            speech_frames, len(speech_buffer)
                         )
                         async for chunk in self._process_speech_segment(
                             speech_chunk_buffer, speech_buffer
@@ -377,31 +490,20 @@ class WakeWordFilter(AudioIn, EasyResource):
                             yield chunk
                     else:
                         self.logger.debug(
-                            f"Ignoring false positive: only {speech_frames} frames detected"
+                            "Ignoring false positive: only %d frames", speech_frames
                         )
 
-                    # Clear buffers either way
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
+                    reset_buffers()
 
-                # Prevent buffer from growing too large, process when it gets to max size
-                if len(speech_buffer) > MAX_BUFFER_SIZE_BYTES:
+                # Secondary check (shouldn't be needed but safety)
+                if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
                     self.logger.debug("Processing speech segment")
                     async for chunk in self._process_speech_segment(
                         speech_chunk_buffer, speech_buffer
                     ):
                         yield chunk
 
-                    speech_chunk_buffer.clear()
-                    speech_buffer.clear()
-                    audio_buffer.clear()
-                    is_speech_active = False
-                    silence_frames = 0
-                    speech_frames = 0
+                    reset_buffers()
 
             # Process any remaining buffered audio when stream ends
             if speech_chunk_buffer and speech_frames >= min_speech_frames:
@@ -419,47 +521,63 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return StreamWithIterator(audio_generator())
 
-    def _check_for_wake_word(self, audio_bytes: bytes, sample_rate: int) -> bool:
+    def _check_for_wake_word(self, audio_bytes: bytes) -> bool:
         """
         Check if any wake word is in audio.
 
         Args:
             audio_bytes: Raw PCM16 audio data
-            sample_rate: Audio sample rate
 
         Returns:
             bool: True if any wake word detected
         """
         try:
-            recognizer = KaldiRecognizer(self.vosk_model, sample_rate)
-            recognizer.AcceptWaveform(audio_bytes)
-            result = json.loads(recognizer.FinalResult())
-
+            self.recognizer.AcceptWaveform(audio_bytes)
+            result = json.loads(self.recognizer.FinalResult())
             text = result.get("text", "").lower()
 
+            # Check confidence to reduce false positives from grammar forcing
+            self.logger.debug("Vosk result: %s", result)
+            if "result" in result and result["result"]:
+                avg_conf = sum(w.get("conf", 1.0) for w in result["result"])
+                avg_conf /= len(result["result"])
+                self.logger.debug("Vosk confidence: %.2f", avg_conf)
+                if avg_conf < self.grammar_confidence:
+                    self.logger.debug(
+                        "Rejecting low confidence: '%s' (conf=%.2f < %.2f)",
+                        text, avg_conf, self.grammar_confidence
+                    )
+                    return False
+
             if text:
-                self.logger.debug(f"Recognized text: '{text}'")
+                self.logger.debug(f"Recognized: '{text}'")
             else:
                 self.logger.debug("Vosk returned empty text, no speech recognized")
                 return False
 
             for wake_word in self.wake_words:
-                if self.fuzzy_matcher:
-                    # Use fuzzy matching to match wake word
+                if self.fuzzy_matcher and not self.use_grammar:
                     match_details = self.fuzzy_matcher.match(text, wake_word)
                     if match_details:
                         self.logger.info(
-                            f"Wake word '{wake_word}' detected (fuzzy match: "
-                            f"'{match_details['matched_text']}', distance={match_details['distance']})"
+                            f"Wake word '{wake_word}' detected (fuzzy: "
+                            f"'{match_details['matched_text']}', "
+                            f"distance={match_details['distance']})"
                         )
                         return True
                 else:
-                    # search for exact wake word match at start of text
-                    pattern = rf"^\b{re.escape(wake_word)}\b"
-                    if re.search(pattern, text):
-                        self.logger.info(f"Wake word '{wake_word}' detected")
+                    # checking whole return phrase for wake word
+                    pattern = rf"\b{re.escape(wake_word)}\b"
+                    match = re.search(pattern, text)
+                    self.logger.debug(
+                        "Checking wake_word='%s' pattern='%s' against text='%s' -> %s",
+                        wake_word, pattern, text, match
+                    )
+                    if match:
+                        self.logger.info("Wake word '%s' detected", wake_word)
                         return True
 
+            self.logger.debug("No wake word match found")
             return False
         except Exception as e:
             self.logger.error(f"Vosk error: {e}", exc_info=True)
@@ -476,7 +594,29 @@ class WakeWordFilter(AudioIn, EasyResource):
     async def do_command(
         self, command: Mapping[str, Any], **kwargs
     ) -> Mapping[str, Any]:
-        raise NotImplementedError()
+        """
+        Handle commands for the wake word filter.
+
+        Supported commands:
+        - pause_detection: Pause wake word detection
+        - resume_detection: Resume wake word detection
+
+        Examples:
+            {"pause_detection": None}  # pause detection
+            {"resume_detection": None}    # resume detection
+        """
+        if "pause_detection" in command:
+            self.detection_running = False
+            self.logger.info("Detection paused")
+            return {"status": "paused"}
+
+        elif "resume_detection" in command:
+            self.detection_running =True
+            self.logger.info("Detection resumed")
+            return {"status": "resumed"}
+
+        else:
+            raise ValueError(f"Unknown command keys: {list(command.keys())}")
 
     async def get_geometries(self, **kwargs) -> List[Any]:
         raise NotImplementedError()

@@ -29,6 +29,7 @@ def mock_env():
     with (
         patch("src.models.wake_word_filter.struct_to_dict") as mock_struct,
         patch("src.models.wake_word_filter.VoskModel") as mock_vosk,
+        patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer,
         patch("src.models.wake_word_filter.webrtcvad.Vad") as mock_vad,
         patch("src.models.wake_word_filter.ThreadPoolExecutor") as mock_executor,
         patch(
@@ -41,6 +42,7 @@ def mock_env():
         yield {
             "struct_to_dict": mock_struct,
             "vosk": mock_vosk,
+            "recognizer": mock_recognizer,
             "vad": mock_vad,
             "executor": mock_executor,
             "get_vosk_model": mock_get_vosk,
@@ -180,7 +182,38 @@ def test_validate_config_rejects_non_int_vad_agressiveness(mock_env):
     mock_env["struct_to_dict"].return_value = {
         "source_microphone": "mic",
         "wake_words": ["robot", "computer"],
-        "vad_aggressiveness": "4",
+        "vad_aggressiveness": "four",
+    }
+
+    with pytest.raises(ValueError, match="vad_aggressiveness must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_float_vad_aggressiveness_without_fraction(mock_env):
+    """Test validate_config accepts float vad_aggressiveness if no fractional part (e.g. 2.0)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vad_aggressiveness": 2.0,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_float_vad_aggressiveness_with_fraction(mock_env):
+    """Test validate_config rejects float vad_aggressiveness with fractional part (e.g. 2.5)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vad_aggressiveness": 2.5,
     }
 
     with pytest.raises(ValueError, match="vad_aggressiveness must be a whole number"):
@@ -195,7 +228,38 @@ def test_validate_config_rejects_non_int_fuzzy_threshold(mock_env):
     mock_env["struct_to_dict"].return_value = {
         "source_microphone": "mic",
         "wake_words": ["robot", "computer"],
-        "fuzzy_threshold": "5",
+        "fuzzy_threshold": "five",
+    }
+
+    with pytest.raises(ValueError, match="fuzzy_threshold must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_float_fuzzy_threshold_without_fraction(mock_env):
+    """Test validate_config accepts float fuzzy_threshold if no fractional part (e.g. 3.0)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "fuzzy_threshold": 3.0,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_float_fuzzy_threshold_with_fraction(mock_env):
+    """Test validate_config rejects float fuzzy_threshold with fractional part (e.g. 3.5)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "fuzzy_threshold": 3.5,
     }
 
     with pytest.raises(ValueError, match="fuzzy_threshold must be a whole number"):
@@ -215,6 +279,238 @@ def test_validate_config_rejects_invalid_fuzzy_threshold(mock_env):
 
     with pytest.raises(ValueError, match="fuzzy_threshold must be 0-5, got 7"):
         WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_silence_duration_ms(mock_env):
+    """Test validate_config raises error when silence_duration_ms not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": "five hundred",
+    }
+
+    with pytest.raises(ValueError, match="silence_duration_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_float_silence_duration_ms_without_fraction(mock_env):
+    """Test validate_config accepts float silence_duration_ms if no fractional part (e.g. 500.0)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 500.0,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_float_silence_duration_ms_with_fraction(mock_env):
+    """Test validate_config rejects float silence_duration_ms with fractional part (e.g. 500.5)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 500.5,
+    }
+
+    with pytest.raises(ValueError, match="silence_duration_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_int_min_speech_ms(mock_env):
+    """Test validate_config raises error when min_speech_ms not an int"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": "three hundred",
+    }
+
+    with pytest.raises(ValueError, match="min_speech_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_float_min_speech_ms_without_fraction(mock_env):
+    """Test validate_config accepts float min_speech_ms if no fractional part (e.g. 300.0)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": 300.0,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_float_min_speech_ms_with_fraction(mock_env):
+    """Test validate_config rejects float min_speech_ms with fractional part (e.g. 300.5)"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": 300.5,
+    }
+
+    with pytest.raises(ValueError, match="min_speech_ms must be a whole number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_valid_silence_duration_ms(mock_env):
+    """Test validate_config accepts valid silence_duration_ms"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 1000,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_accepts_valid_min_speech_ms(mock_env):
+    """Test validate_config accepts valid min_speech_ms"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "min_speech_ms": 500,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_non_bool_use_grammar(mock_env):
+    """Test validate_config raises error when use_grammar is not a boolean"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "use_grammar": "true",
+    }
+
+    with pytest.raises(ValueError, match="use_grammar must be a boolean"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_use_grammar_true(mock_env):
+    """Test validate_config accepts use_grammar=True"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "use_grammar": True,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_accepts_use_grammar_false(mock_env):
+    """Test validate_config accepts use_grammar=False"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "use_grammar": False,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_non_number_grammar_confidence(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence not a number"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": "zero point seven",
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be a number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_grammar_confidence_too_low(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence below 0"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": -0.1,
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be 0.0-1.0"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_grammar_confidence_too_high(mock_env):
+    """Test validate_config raises error when vosk_grammar_confidence above 1"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 1.5,
+    }
+
+    with pytest.raises(ValueError, match="vosk_grammar_confidence must be 0.0-1.0"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_valid_grammar_confidence(mock_env):
+    """Test validate_config accepts valid vosk_grammar_confidence"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 0.8,
+    }
+
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
 
 
 # Tests for WakeWordFilter.new()
@@ -332,6 +628,142 @@ def test_new_sets_microphone_client(mock_env):
     assert instance.microphone_client == mic
 
 
+def test_new_uses_default_silence_duration_ms(mock_env):
+    """Test new() uses default silence_duration_ms when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 900ms
+    assert instance.silence_duration_ms == 900
+
+
+def test_new_uses_custom_silence_duration_ms(mock_env):
+    """Test new() uses custom silence_duration_ms when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "silence_duration_ms": 1200,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.silence_duration_ms == 1200
+
+
+def test_new_uses_default_min_speech_duration_ms(mock_env):
+    """Test new() uses default min_speech_duration_ms when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 300ms
+    assert instance.min_speech_duration_ms == 300
+
+
+def test_new_uses_custom_min_speech_duration_ms(mock_env):
+    """Test new() uses custom min_speech_ms when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "min_speech_ms": 500,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.min_speech_duration_ms == 500
+
+
+def test_new_uses_default_use_grammar(mock_env):
+    """Test new() uses default use_grammar=True when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is True (grammar mode)
+    assert instance.use_grammar is True
+
+
+def test_new_uses_custom_use_grammar_false(mock_env):
+    """Test new() uses custom use_grammar=False when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "use_grammar": False,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.use_grammar is False
+
+
+def test_new_uses_default_grammar_confidence(mock_env):
+    """Test new() uses defaultvosk_grammar_confidence when not specified"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    # Default is 0.7
+    assert instance.grammar_confidence == 0.7
+
+
+def test_new_uses_custom_grammar_confidence(mock_env):
+    """Test new() uses custom vosk_grammar_confidence when provided"""
+    config = Mock()
+    mic = AsyncMock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "vosk_grammar_confidence": 0.85,
+    }
+
+    dependencies = {"mic1": mic}
+    instance = WakeWordFilter.new(config, dependencies)
+
+    assert instance.grammar_confidence == 0.85
+
+
 # # Error case tests for WakeWordFilter.new()
 
 
@@ -388,134 +820,161 @@ def test_new_handles_missing_microphone_in_dependencies(mock_env):
         WakeWordFilter.new(config, dependencies)
 
 
-def test_check_for_wake_word_detects_wake_word_at_start():
-    """Test check_for_wake_word returns True when wake word is at the start of audio"""
+def test_check_for_wake_word_detects_wake_word_anywhere():
+    """Test check_for_wake_word returns True when wake word is anywhere in audio"""
     wake_word_filter = Mock()
-    wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
     wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = True
     wake_word_filter.logger = Mock()
 
-    with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
-        mock_rec = Mock()
-        mock_rec.AcceptWaveform.return_value = True
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    wake_word_filter.recognizer = mock_rec
 
-        # Wake word at start - should match
-        mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-        mock_recognizer_class.return_value = mock_rec
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is True
+    # Wake word at start - should match
+    mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # Wake word in middle - should not match
-        mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
+    # Wake word in middle - should match
+    mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # Wake word at end - should not match
-        mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
+    # Wake word at end - should match
+    mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # No wake word - should not match
-        mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
+    # No wake word - should not match
+    mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is False
 
-        # Empty text - should NOT match
-        mock_rec.FinalResult.return_value = '{"text": ""}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
+    # Empty text - should NOT match
+    mock_rec.FinalResult.return_value = '{"text": ""}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is False
 
 
 def test_check_for_wake_word_handles_multiple_wake_words():
     """Test check_for_wake_word works with multiple wake words"""
     wake_word_filter = Mock()
-    wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot", "computer", "hey assistant"]
     wake_word_filter.fuzzy_matcher = None  # Exact matching
+    wake_word_filter.use_grammar = True
     wake_word_filter.logger = Mock()
 
-    with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
-        mock_rec = Mock()
-        mock_rec.AcceptWaveform.return_value = True
-        mock_recognizer_class.return_value = mock_rec
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    wake_word_filter.recognizer = mock_rec
 
-        # First wake word at start
-        mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is True
+    # First wake word at start
+    mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # Second wake word at start
-        mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is True
+    # Second wake word at start
+    mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # Multi-word wake word at start
-        mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is True
+    # Multi-word wake word at start
+    mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
 
 def test_check_for_wake_word_respects_word_boundaries():
     """Test check_for_wake_word doesn't match substrings"""
     wake_word_filter = Mock()
-    wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
     wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = True
     wake_word_filter.logger = Mock()
 
-    with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
-        mock_rec = Mock()
-        mock_rec.AcceptWaveform.return_value = True
-        mock_recognizer_class.return_value = mock_rec
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    wake_word_filter.recognizer = mock_rec
 
-        # Should match: exact word
-        mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is True
+    # Should match: exact word
+    mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
 
-        # Should not match: wake word is part of another word
-        mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
+    # Should not match: wake word is part of another word
+    mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is False
+
+
+def test_check_for_wake_word_with_grammar_mode():
+    """Test _check_for_wake_word works in grammar mode"""
+    wake_word_filter = Mock()
+    wake_word_filter.wake_words = ["robot", "computer"]
+    wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = True
+    wake_word_filter.logger = Mock()
+
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    mock_rec.FinalResult.return_value = '{"text": "robot"}'
+    wake_word_filter.recognizer = mock_rec
+
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
+
+
+def test_check_for_wake_word_without_grammar_mode():
+    """Test _check_for_wake_word uses full transcription and searches for wake word"""
+    wake_word_filter = Mock()
+    wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = False
+    wake_word_filter.logger = Mock()
+
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
+    wake_word_filter.recognizer = mock_rec
+
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is True
+
+
+def test_check_for_wake_word_no_grammar_no_match():
+    """Test _check_for_wake_word returns False when wake word not in transcription"""
+    wake_word_filter = Mock()
+    wake_word_filter.wake_words = ["robot"]
+    wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = False
+    wake_word_filter.logger = Mock()
+
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.return_value = True
+    mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
+    wake_word_filter.recognizer = mock_rec
+
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is False
 
 
 def test_check_for_wake_word_handles_vosk_errors():
     """Test check_for_wake_word returns False on Vosk errors"""
     wake_word_filter = Mock()
-    wake_word_filter.vosk_model = Mock()
     wake_word_filter.wake_words = ["robot"]
     wake_word_filter.fuzzy_matcher = None
+    wake_word_filter.use_grammar = True
     wake_word_filter.logger = Mock()
 
-    with patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer_class:
-        mock_recognizer_class.side_effect = Exception("Vosk error")
+    mock_rec = Mock()
+    mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
+    wake_word_filter.recognizer = mock_rec
 
-        result = WakeWordFilter._check_for_wake_word(
-            wake_word_filter, b"\x00" * 1000, 16000
-        )
-        assert result is False
-        wake_word_filter.logger.error.assert_called_once()
+    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    assert result is False
+    wake_word_filter.logger.error.assert_called_once()
 
 
 @pytest.mark.asyncio
