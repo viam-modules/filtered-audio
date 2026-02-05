@@ -1,39 +1,43 @@
 """
-Voice assistant using Google Speech-to-Text, Gemini, and Google TTS.
+Voice assistant using OpenAI Whisper, GPT, and OpenAI TTS.
 
-Requires: pip install viam-sdk google-genai SpeechRecognition gTTS
-Set environment variable: GOOGLE_API_KEY
-Generate an API key at https://aistudio.google.com/app/u/1/api-keys
+Requires: pip install viam-sdk openai
+Set environment variable: OPENAI_API_KEY
+generate openAI key: https://platform.openai.com/api-keys
 """
 
 import asyncio
 import os
+import wave
+from io import BytesIO
 
 from viam.robot.client import RobotClient
 from viam.components.audio_in import AudioIn, AudioCodec
 from viam.components.audio_out import AudioOut, AudioInfo
-import speech_recognition as sr
-from io import BytesIO
-from gtts import gTTS
-from google import genai
+from openai import OpenAI
 
-PCM16_SAMPLE_WIDTH = 2
-class GeminiVoiceAssistant:
-    """Voice assistant powered by Google Cloud services."""
 
-    def __init__(self, robot: RobotClient, filter_name: str = "filter", audioout_name: str = "speaker"):
+class OpenAIVoiceAssistant:
+    """Voice assistant powered by OpenAI services."""
+
+    def __init__(
+        self,
+        robot: RobotClient,
+        filter_name: str = "filter",
+        audioout_name: str = "speaker",
+    ):
         self.robot = robot
         self.filter_name = filter_name
         self.audioout_name = audioout_name
-        self.recognizer = sr.Recognizer()
-        self.tts_lang = 'en'
         self.filter = None
         self.audioout = None
 
-        self.client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
-        self.system_prompt = "You are a helpful voice assistant. Keep responses concise and conversational."
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.system_prompt = (
+            "You are a helpful voice assistant. "
+            "Keep responses concise and conversational."
+        )
         self.chat_history = []
-
 
     async def start(self):
         self.filter = AudioIn.from_robot(self.robot, self.filter_name)
@@ -41,50 +45,64 @@ class GeminiVoiceAssistant:
         print(f"Connected to filtered microphone: {self.filter_name}")
         print(f"Connected to speaker: {self.audioout_name}")
 
-
     def speech_to_text(self, audio_data: bytes, sample_rate: int = 16000) -> str:
-        """Convert audio to text."""
-        audio = sr.AudioData(audio_data, sample_rate, PCM16_SAMPLE_WIDTH)
-        return self.recognizer.recognize_google(audio)
+        """Convert audio to text using Whisper."""
+        # Add WAV header for raw PCM data
+        wav_buffer = BytesIO()
+        with wave.open(wav_buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)  # 16-bit
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(audio_data)
+
+        wav_buffer.seek(0)
+        wav_buffer.name = "audio.wav"
+        response = self.client.audio.transcriptions.create(
+            model="whisper-1",
+            file=wav_buffer,
+        )
+        return response.text
 
     def get_response(self, user_text: str) -> str:
-        """Generate response using Gemini."""
+        """Generate response using GPT."""
         if not user_text:
             return "I didn't catch that."
 
         try:
-            # Build conversation context
-            messages = [self.system_prompt] + self.chat_history + [f"User: {user_text}"]
+            # Build messages for chat completion
+            messages = [{"role": "system", "content": self.system_prompt}]
+            messages.extend(self.chat_history)
+            messages.append({"role": "user", "content": user_text})
 
-            # Send message to Gemini
-            response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents='\n'.join(messages)
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
             )
 
-            # Update chat history
-            self.chat_history.append(f"User: {user_text}")
-            self.chat_history.append(f"Assistant: {response.text}")
+            assistant_message = response.choices[0].message.content
 
-            return response.text
+            # Update chat history
+            self.chat_history.append({"role": "user", "content": user_text})
+            self.chat_history.append({"role": "assistant", "content": assistant_message})
+
+            return assistant_message
         except Exception as e:
-            print(f"Error getting Gemini response: {e}")
+            print(f"Error getting GPT response: {e}")
             return "Sorry, I had trouble processing that."
 
     async def speak(self, text: str):
-        """Text to speech with detection paused to avoid echo."""
-        buffer = BytesIO()
-        gTTS(text=text, lang=self.tts_lang).write_to_fp(buffer)
-        mp3_data = buffer.getvalue()
-        audio_info = AudioInfo(codec=AudioCodec.MP3)
-
-        # Pause wake word detection during TTS playback
-        await self.filter.do_command({"pause_detection": None})
+        """Text to speech using OpenAI TTS."""
         try:
+            response = self.client.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input=text,
+            )
+            mp3_data = response.content
+            audio_info = AudioInfo(codec=AudioCodec.MP3)
             await self.audioout.play(mp3_data, audio_info)
-        finally:
-            # Resume detection after playback
-            await self.filter.do_command({"resume_detection": None})
+        except Exception as e:
+            print(f"Error in text to speech: {e}")
 
     async def run(self):
         """Continuously listen and respond."""
@@ -138,22 +156,19 @@ class GeminiVoiceAssistant:
 
 async def main():
     # Check for API key
-    if not os.getenv("GOOGLE_API_KEY"):
-        print("Error: GOOGLE_API_KEY environment variable not set")
-        print("Set it with: export GOOGLE_API_KEY='your-api-key'")
+    if not os.getenv("OPENAI_API_KEY"):
+        print("Error: OPENAI_API_KEY environment variable not set")
+        print("Set it with: export OPENAI_API_KEY='your-api-key'")
         return
-
 
     opts = RobotClient.Options.with_api_key(
         api_key='',
         api_key_id=''
     )
-
-
     robot = await RobotClient.at_address('', opts)
 
     try:
-        assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
+        assistant = OpenAIVoiceAssistant(robot, "filter", "speaker")
         await assistant.start()
         await assistant.run()
     finally:
