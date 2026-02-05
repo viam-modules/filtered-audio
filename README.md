@@ -151,3 +151,26 @@ async for chunk in audio_stream:
  Clients should continue consuming chunks even while processing previous segments to avoid stream disconnection.
 
  See examples/ directory for complete usage examples.
+
+### Do command
+
+The wake word filter supports `do_command()` for pausing and resuming detection. This is useful for voice assistants that need to prevent the filter from detecting its own TTS (text-to-speech) output.
+
+#### Supported Commands
+
+| Command | Description |
+|---------|-------------|
+| `pause_detection` | Pauses wake word detection. Audio is still consumed but not processed. |
+| `resume_detection` | Resumes wake word detection. |
+
+#### Example Usage
+
+```python
+# Pause detection before playing TTS audio
+await filter.do_command({"pause_detection": None})
+
+await audio_output.play(audio_data)
+
+# Resume detection after TTS finishes
+await filter.do_command({"resume_detection": None})
+```
