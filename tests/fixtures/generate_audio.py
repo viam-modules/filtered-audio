@@ -2,11 +2,10 @@
 """
 Pre-generate audio fixtures for CI.
 
-Run this script locally to generate the test audio files before committing.
-This allows tests to run in CI without internet access.
+Run this script locally to generate new audio test files.
 
 Usage:
-    python tests/fixtures/generate_audio.py
+    python3 tests/fixtures/generate_audio.py
 """
 
 import io
@@ -14,13 +13,8 @@ from pathlib import Path
 
 # Phrases used in integration tests
 TEST_PHRASES = [
-    "hello",
-    "robot",
-    "hey robot",
-    "hello robot",
-    "robot turn on the lights",
-    "hello robot turn on the lights",
-    "hello how are you today",
+    "okay robot turn on the lights",
+    "turn on the lights"
 ]
 
 FIXTURES_DIR = Path(__file__).parent
@@ -73,7 +67,6 @@ def main():
     print()
     print(f"Generated {len(TEST_PHRASES)} audio files in {AUDIO_DIR}")
     print()
-    print("Don't forget to commit the audio/ directory for CI!")
 
 
 if __name__ == "__main__":
