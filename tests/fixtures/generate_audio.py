@@ -14,10 +14,7 @@ from gtts import gTTS
 from pydub import AudioSegment
 
 # Phrases used in integration tests
-TEST_PHRASES = [
-    "okay robot turn on the lights",
-    "turn on the lights"
-]
+TEST_PHRASES = ["okay robot turn on the lights", "turn on the lights"]
 
 FIXTURES_DIR = Path(__file__).parent
 AUDIO_DIR = FIXTURES_DIR / "audio"

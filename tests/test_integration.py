@@ -164,6 +164,8 @@ class TestGetAudioIntegration:
         chunks_received = []
 
         async for chunk in stream:
-                chunks_received.append(chunk)
+            chunks_received.append(chunk)
 
-        assert len(chunks_received) == 0, "Shouldn't yield chunks when no wake word present"
+        assert len(chunks_received) == 0, (
+            "Shouldn't yield chunks when no wake word present"
+        )
