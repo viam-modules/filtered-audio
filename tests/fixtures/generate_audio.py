@@ -10,6 +10,8 @@ Usage:
 
 import io
 from pathlib import Path
+from gtts import gTTS
+from pydub import AudioSegment
 
 # Phrases used in integration tests
 TEST_PHRASES = [
@@ -24,8 +26,6 @@ SAMPLE_RATE = 16000
 
 def generate_audio_file(text: str, output_path: Path) -> None:
     """Generate a PCM16 audio file from text using gTTS."""
-    from gtts import gTTS
-    from pydub import AudioSegment
 
     print(f"  Generating: {text!r}")
 
@@ -46,7 +46,6 @@ def generate_audio_file(text: str, output_path: Path) -> None:
     audio.export(pcm_buffer, format="raw")
 
     output_path.write_bytes(pcm_buffer.getvalue())
-    print(f"    -> {output_path.name} ({output_path.stat().st_size} bytes)")
 
 
 def main():
@@ -58,7 +57,7 @@ def main():
     AUDIO_DIR.mkdir(exist_ok=True)
 
     for phrase in TEST_PHRASES:
-        # Create safe filename
+        # Create filename
         safe_name = "".join(c if c.isalnum() else "_" for c in phrase.lower())[:50]
         output_path = AUDIO_DIR / f"{safe_name}.raw"
 

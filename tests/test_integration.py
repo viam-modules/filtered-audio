@@ -97,8 +97,6 @@ class TestGetAudioIntegration:
         chunks_received = []
 
         async for chunk in stream:
-            if chunk.audio.audio_data == b"" and len(chunks_received) == 0:
-                continue  # Skip initial empty chunk
             chunks_received.append(chunk)
 
         assert len(chunks_received) == 0
