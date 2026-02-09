@@ -45,10 +45,18 @@ def mock_microphone():
 @pytest.fixture
 def integration_env():
     """Patch microphone dependency lookup for integration tests."""
-    with patch(
-        "src.models.wake_word_filter.AudioIn.get_resource_name", return_value="mic1"
+    with (
+        patch(
+            "src.models.wake_word_filter.AudioIn.get_resource_name",
+            return_value="mic1",
+        ),
+        patch(
+            "src.models.vosk.os.getenv",
+            return_value="/tmp/module-data",
+        ),
     ):
         yield
+
 
 
 class TestGetAudioIntegration:
