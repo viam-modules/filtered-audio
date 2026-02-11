@@ -12,6 +12,7 @@ import io
 from pathlib import Path
 from gtts import gTTS
 from pydub import AudioSegment
+from tests.fixtures.speech_audio import _get_filename
 
 # Phrases used in integration tests
 TEST_PHRASES = ["okay robot turn on the lights", "turn on the lights"]
@@ -47,22 +48,17 @@ def generate_audio_file(text: str, output_path: Path) -> None:
 
 def main():
     """Generate all test audio files."""
-    print("Generating test audio fixtures...")
-    print()
+    print("Generating test audio fixtures...\n")
 
     # Create audio directory
     AUDIO_DIR.mkdir(exist_ok=True)
 
     for phrase in TEST_PHRASES:
-        # Create filename
-        safe_name = "".join(c if c.isalnum() else "_" for c in phrase.lower())[:50]
-        output_path = AUDIO_DIR / f"{safe_name}.raw"
+        output_path = AUDIO_DIR / f"{_get_filename(phrase)}.raw"
 
         generate_audio_file(phrase, output_path)
 
-    print()
-    print(f"Generated {len(TEST_PHRASES)} audio files in {AUDIO_DIR}")
-    print()
+    print(f"\nGenerated {len(TEST_PHRASES)} audio files in {AUDIO_DIR}\n")
 
 
 if __name__ == "__main__":
