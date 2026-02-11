@@ -34,9 +34,12 @@ from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
 MAX_BUFFER_SIZE_BYTES = 480000  # ~15 seconds at 16kHz
-DEFAULT_SILENCE_DURATION_MS = 900  # milliseconds of silence before ending a speech segment
+DEFAULT_SILENCE_DURATION_MS = (
+    900  # milliseconds of silence before ending a speech segment
+)
 DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
 DEFAULT_GRAMMAR_CONFIDENCE = 0.7  # min confidence for Vosk grammar matches (0.0-1.0)
+
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -97,20 +100,18 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.silence_duration_ms = int(
             attrs.get("silence_duration_ms", DEFAULT_SILENCE_DURATION_MS)
         )
-        instance.logger.info(
-            f"VAD Silence duration: {instance.silence_duration_ms}ms"
-        )
+        instance.logger.info(f"VAD Silence duration: {instance.silence_duration_ms}ms")
 
-        instance.min_speech_duration_ms = int(attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS))
+        instance.min_speech_duration_ms = int(
+            attrs.get("min_speech_ms", DEFAULT_MIN_SPEECH_DURATION_MS)
+        )
         instance.logger.info(
             f"min speech segment duration: {instance.min_speech_duration_ms}ms"
         )
 
         # Grammar mode - default True for constrained wake word recognition
         instance.use_grammar = attrs.get("use_grammar", True)
-        instance.logger.info(
-            f"Vosk grammar mode: {instance.use_grammar}"
-        )
+        instance.logger.info(f"Vosk grammar mode: {instance.use_grammar}")
 
         instance.grammar_confidence = float(
             attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
@@ -237,10 +238,7 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Validate min_speech_ms
         min_speech_ms: Any = attrs.get("min_speech_ms", None)
         if min_speech_ms is not None:
-            if (
-                not isinstance(min_speech_ms, (int, float))
-                or min_speech_ms % 1 != 0
-            ):
+            if not isinstance(min_speech_ms, (int, float)) or min_speech_ms % 1 != 0:
                 raise ValueError("min_speech_ms must be a whole number")
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
@@ -482,7 +480,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                     if speech_frames >= min_speech_frames:
                         self.logger.debug(
                             "Speech segment ended (%d frames, %d bytes)",
-                            speech_frames, len(speech_buffer)
+                            speech_frames,
+                            len(speech_buffer),
                         )
                         async for chunk in self._process_speech_segment(
                             speech_chunk_buffer, speech_buffer
@@ -545,7 +544,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                 if avg_conf < self.grammar_confidence:
                     self.logger.debug(
                         "Rejecting low confidence: '%s' (conf=%.2f < %.2f)",
-                        text, avg_conf, self.grammar_confidence
+                        text,
+                        avg_conf,
+                        self.grammar_confidence,
                     )
                     return False
 
@@ -571,7 +572,10 @@ class WakeWordFilter(AudioIn, EasyResource):
                     match = re.search(pattern, text)
                     self.logger.debug(
                         "Checking wake_word='%s' pattern='%s' against text='%s' -> %s",
-                        wake_word, pattern, text, match
+                        wake_word,
+                        pattern,
+                        text,
+                        match,
                     )
                     if match:
                         self.logger.info("Wake word '%s' detected", wake_word)
@@ -611,7 +615,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             return {"status": "paused"}
 
         elif "resume_detection" in command:
-            self.detection_running =True
+            self.detection_running = True
             self.logger.info("Detection resumed")
             return {"status": "resumed"}
 
