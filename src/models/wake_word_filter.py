@@ -501,6 +501,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             min_speech_frames = self.min_speech_duration_ms // frame_duration_ms
 
             oww_detected = False  # Track if OWW detected wake word during segment
+            oww_streaming = False  # Real-time pass-through after OWW detection
             # For the best efficiency and latency, audio frames should be multiples of 80 ms, with longer frames
             # increasing overall efficiency at the cost of detection latency
             # 16khz * .080 sec = 1280 samples
@@ -509,7 +510,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             def reset_buffers():
                 """Clear all buffers and reset speech state."""
-                nonlocal is_speech_active, silence_frames, speech_frames, oww_detected
+                nonlocal is_speech_active, silence_frames, speech_frames, oww_detected, oww_streaming
                 speech_chunk_buffer.clear()
                 speech_buffer.clear()
                 audio_buffer.clear()
@@ -518,6 +519,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 silence_frames = 0
                 speech_frames = 0
                 oww_detected = False
+                oww_streaming = False
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
@@ -536,6 +538,10 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                 if not audio_data:
                     continue
+
+                # In OWW streaming mode, yield chunks in real-time
+                if oww_streaming:
+                    yield audio_chunk
 
                 # WebRTC VAD requires specific frame sizes (10, 20, or 30ms)
                 # At 16kHz: 30ms = 480 samples = 960 bytes
@@ -643,6 +649,21 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # Remove the frame we just processed
                     audio_buffer = audio_buffer[frame_size:]
 
+                # Start streaming the moment OWW detects wake word
+                if (
+                    self.detection_engine == "openwakeword"
+                    and oww_detected
+                    and not oww_streaming
+                ):
+                    oww_streaming = True
+                    self.logger.info(
+                        "OWW: Streaming started, flushing "
+                        f"{len(speech_chunk_buffer)} buffered chunks"
+                    )
+                    for chunk in speech_chunk_buffer:
+                        yield chunk
+                    speech_chunk_buffer.clear()
+
                 # If speech segment ended or buffer limit reached, check for wake word
                 if should_process:
                     # Only process if we had enough speech (filters out brief false positives)
@@ -653,7 +674,16 @@ class WakeWordFilter(AudioIn, EasyResource):
                             len(speech_buffer),
                         )
                         if self.detection_engine == "openwakeword":
-                            if oww_detected:
+                            if oww_streaming:
+                                # Audio already yielded in real-time
+                                self.logger.info(
+                                    "OWW: Streaming segment complete"
+                                )
+                                empty_response = AudioChunk()
+                                empty_response.audio.audio_data = b""
+                                yield empty_response
+                            elif oww_detected:
+                                # Detection + segment end same iteration
                                 self.logger.info(
                                     f"OWW: Yielding {len(speech_chunk_buffer)} chunks "
                                     f"({len(speech_buffer)} bytes)"
@@ -696,7 +726,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                 if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
                     self.logger.debug("Processing speech segment")
                     if self.detection_engine == "openwakeword":
-                        if oww_detected:
+                        if oww_streaming:
+                            empty_response = AudioChunk()
+                            empty_response.audio.audio_data = b""
+                            yield empty_response
+                        elif oww_detected:
                             for chunk in speech_chunk_buffer:
                                 yield chunk
                             empty_response = AudioChunk()
@@ -712,29 +746,31 @@ class WakeWordFilter(AudioIn, EasyResource):
                     reset_buffers()
 
             # Process any remaining buffered audio when stream ends
-            if speech_chunk_buffer and speech_frames >= min_speech_frames:
+            if self.detection_engine == "openwakeword":
+                if oww_streaming:
+                    self.logger.debug("Stream ended during OWW streaming")
+                    empty_response = AudioChunk()
+                    empty_response.audio.audio_data = b""
+                    yield empty_response
+                elif oww_detected and speech_chunk_buffer:
+                    for chunk in speech_chunk_buffer:
+                        yield chunk
+                    empty_response = AudioChunk()
+                    empty_response.audio.audio_data = b""
+                    yield empty_response
+                self.oww_model.reset()
+            elif speech_chunk_buffer and speech_frames >= min_speech_frames:
                 self.logger.debug(
                     f"Stream ended with {len(speech_buffer)} bytes buffered, processing"
                 )
-                if self.detection_engine == "openwakeword":
-                    if oww_detected:
-                        for chunk in speech_chunk_buffer:
-                            yield chunk
-                        empty_response = AudioChunk()
-                        empty_response.audio.audio_data = b""
-                        yield empty_response
-                    self.oww_model.reset()
-                else:
-                    async for chunk in self._process_speech_segment(
-                        speech_chunk_buffer, speech_buffer
-                    ):
-                        yield chunk
+                async for chunk in self._process_speech_segment(
+                    speech_chunk_buffer, speech_buffer
+                ):
+                    yield chunk
             elif speech_chunk_buffer:
                 self.logger.debug(
                     f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)"
                 )
-                if self.detection_engine == "openwakeword":
-                    self.oww_model.reset()
 
         return StreamWithIterator(audio_generator())
 
