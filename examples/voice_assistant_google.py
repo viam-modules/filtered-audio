@@ -118,8 +118,6 @@ class GeminiVoiceAssistant:
                                     await self.speak(response_text)
                                 else:
                                     print("No speech recognized")
-                            except sr.UnknownValueError:
-                                print("Could not understand audio (too short or unclear)")
                             except Exception as e:
                                 print(f"Error processing speech: {e}")
 
@@ -147,23 +145,12 @@ async def main():
 
 
     opts = RobotClient.Options.with_api_key(
-
-        api_key='5wdw52cd7qib36rlwd8f4089mohdnceg',
-
-        api_key_id='0e9ade16-4380-4626-8246-cde78b4da568'
+        api_key='',
+        api_key_id=''
     )
 
 
-    # opts = RobotClient.Options.with_api_key(
-    #     api_key='3td02koc3erzfyofi6rx2zu6uygeybay',
-
-    #     api_key_id='36b8d920-9271-4dd7-95da-17147a640591'
-    # )
-
-
-    # robot = await RobotClient.at_address('lorawan-main.ytxdza0q92.viam.cloud', opts)
-
-    robot = await RobotClient.at_address('xarm-main.aqb785vhl4.viam.cloud', opts)
+    robot = await RobotClient.at_address('', opts)
 
     try:
         assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
