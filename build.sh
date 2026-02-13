@@ -35,4 +35,4 @@ $PYTHON -m PyInstaller main.spec
 
 # Create archive with meta.json
 echo "Creating archive..."
-tar -czf dist/archive.tar.gz -C dist main -C .. meta.json
+tar -czf dist/archive.tar.gz dist/main meta.json vosk_models
