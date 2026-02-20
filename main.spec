@@ -1,22 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
-import sys
-import os
 from PyInstaller.utils.hooks import collect_all
-sys.setrecursionlimit(5000)
-
-# Find openwakeword resources directory dynamically
-import openwakeword
-oww_resources = os.path.join(os.path.dirname(openwakeword.__file__), 'resources')
 
 datas = [
-    ('vosk_models', 'vosk_models'),  # Bundled Vosk models
-    (oww_resources, 'openwakeword/resources'),
+    ('vosk_models', 'vosk_models'),
 ]
-
 binaries = []
 hiddenimports = ['googleapiclient']
 
 tmp_ret = collect_all('vosk')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
+tmp_ret = collect_all('openwakeword')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 a = Analysis(

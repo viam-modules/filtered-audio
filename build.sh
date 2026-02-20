@@ -20,25 +20,16 @@ else
     echo "Vosk model already exists at $VOSK_MODELS_DIR/$VOSK_MODEL"
 fi
 
-# Download only openwakeword preprocessing models (not bundled wake words like alexa/jarvis)
-echo "Downloading openwakeword preprocessing models..."
+# Download only openwakeword preprocessing .onnx models (not bundled wake words)
 $PYTHON -c "
 import os, openwakeword, openwakeword.utils
-models_dir = os.path.join(os.path.dirname(openwakeword.__file__), 'resources', 'models')
-os.makedirs(models_dir, exist_ok=True)
-for m in openwakeword.FEATURE_MODELS.values():
-    url = m['download_url']
-    fname = url.split('/')[-1]
-    if not os.path.exists(os.path.join(models_dir, fname)):
-        openwakeword.utils.download_file(url, models_dir)
-    onnx_url = url.replace('.tflite', '.onnx')
-    onnx_fname = fname.replace('.tflite', '.onnx')
-    if not os.path.exists(os.path.join(models_dir, onnx_fname)):
-        openwakeword.utils.download_file(onnx_url, models_dir)
-for m in openwakeword.VAD_MODELS.values():
-    fname = m['download_url'].split('/')[-1]
-    if not os.path.exists(os.path.join(models_dir, fname)):
-        openwakeword.utils.download_file(m['download_url'], models_dir)
+d = os.path.join(os.path.dirname(openwakeword.__file__), 'resources', 'models')
+os.makedirs(d, exist_ok=True)
+for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
+    url = m['download_url'].replace('.tflite', '.onnx')
+    f = os.path.join(d, url.split('/')[-1])
+    if not os.path.exists(f):
+        openwakeword.utils.download_file(url, d)
 "
 
 # Install pyinstaller

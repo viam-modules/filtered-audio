@@ -27,3 +27,9 @@ lint-fix: setup-dev
 
 clean:
 	rm -rf venv .installed build dist module.tar.gz
+
+venv:
+	python3 -m venv venv
+
+start-venv:
+	source venv/bin/activate

@@ -158,24 +158,12 @@ class WakeWordFilter(AudioIn, EasyResource):
                 "models",
             )
             os.makedirs(models_dir, exist_ok=True)
-            for feature_model in openwakeword.FEATURE_MODELS.values():
-                url = feature_model["download_url"]
+            for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
+                url = m["download_url"].replace(".tflite", ".onnx")
                 fname = url.split("/")[-1]
-                onnx_url = url.replace(".tflite", ".onnx")
-                onnx_fname = fname.replace(".tflite", ".onnx")
                 if not os.path.exists(os.path.join(models_dir, fname)):
-                    instance.logger.info(f"Downloading OWW feature model: {fname}")
+                    instance.logger.info(f"Downloading OWW model: {fname}")
                     openwakeword.utils.download_file(url, models_dir)
-                if not os.path.exists(os.path.join(models_dir, onnx_fname)):
-                    instance.logger.info(f"Downloading OWW feature model: {onnx_fname}")
-                    openwakeword.utils.download_file(onnx_url, models_dir)
-            for vad_model in openwakeword.VAD_MODELS.values():
-                fname = vad_model["download_url"].split("/")[-1]
-                if not os.path.exists(os.path.join(models_dir, fname)):
-                    instance.logger.info(f"Downloading OWW VAD model: {fname}")
-                    openwakeword.utils.download_file(
-                        vad_model["download_url"], models_dir
-                    )
 
             oww_model_path = os.path.expanduser(str(attrs.get("oww_model_path", "")))
 
