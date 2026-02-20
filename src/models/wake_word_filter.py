@@ -158,7 +158,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                 "models",
             )
             os.makedirs(models_dir, exist_ok=True)
-            for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
+            for m in list(openwakeword.FEATURE_MODELS.values()) + list(
+                openwakeword.VAD_MODELS.values()
+            ):
                 url = m["download_url"].replace(".tflite", ".onnx")
                 fname = url.split("/")[-1]
                 if not os.path.exists(os.path.join(models_dir, fname)):
@@ -167,7 +169,9 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             oww_model_path = os.path.expanduser(str(attrs.get("oww_model_path", "")))
 
-            if oww_model_path.startswith("http://") or oww_model_path.startswith("https://"):
+            if oww_model_path.startswith("http://") or oww_model_path.startswith(
+                "https://"
+            ):
                 filename = oww_model_path.split("/")[-1]
                 cache_dir = os.getenv("VIAM_MODULE_DATA", tempfile.gettempdir())
                 cached_path = os.path.join(cache_dir, filename)
@@ -175,10 +179,14 @@ class WakeWordFilter(AudioIn, EasyResource):
                 if os.path.exists(cached_path):
                     instance.logger.info(f"Using cached OWW model: {cached_path}")
                 else:
-                    instance.logger.info(f"Downloading OWW model from {oww_model_path}...")
+                    instance.logger.info(
+                        f"Downloading OWW model from {oww_model_path}..."
+                    )
                     ssl_context = ssl.create_default_context(cafile=certifi.where())
                     try:
-                        with urllib.request.urlopen(oww_model_path, context=ssl_context, timeout=120) as resp:
+                        with urllib.request.urlopen(
+                            oww_model_path, context=ssl_context, timeout=120
+                        ) as resp:
                             with open(cached_path, "wb") as f:
                                 while True:
                                     chunk = resp.read(8192)
