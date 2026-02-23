@@ -502,7 +502,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             # increasing overall efficiency at the cost of detection latency
             # 16khz * .080 sec = 1280 samples
             oww_audio_buffer = bytearray()
-            OWW_CHUNK_SIZE = 2560  # 1280 samples * 2 bytes per int16
+            OWW_CHUNK_SIZE = 2560  # 1280 samples * 2 bytes per int16 (80ms)
 
             def reset_buffers():
                 """Clear all buffers and reset speech state."""
@@ -515,6 +515,26 @@ class WakeWordFilter(AudioIn, EasyResource):
                 silence_frames = 0
                 speech_frames = 0
                 oww_detected = False
+
+            def detect_wake_word(frame):
+                """Feed audio frame to OWW and check for wake word detection."""
+                nonlocal oww_detected
+                if oww_detected or self.detection_engine != "openwakeword":
+                    return
+                oww_audio_buffer.extend(frame)
+                while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
+                    oww_chunk = bytes(oww_audio_buffer[:OWW_CHUNK_SIZE])
+                    del oww_audio_buffer[:OWW_CHUNK_SIZE]
+                    audio_int16 = np.frombuffer(oww_chunk, dtype=np.int16)
+                    prediction = self.oww_model.predict(audio_int16)
+                    score = prediction.get(self.oww_model_name, 0.0)
+                    if score >= self.oww_threshold:
+                        self.logger.info(
+                            f"Wake word detected "
+                            f"(score={score:.3f} >= {self.oww_threshold})"
+                        )
+                        oww_detected = True
+                        break
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
@@ -577,22 +597,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                             chunk_added = True
                         speech_buffer.extend(frame)
 
-                        # Accumulate audio for OWW and run prediction when we have enough
-                        if self.detection_engine == "openwakeword" and not oww_detected:
-                            oww_audio_buffer.extend(frame)
-                            while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
-                                oww_chunk = oww_audio_buffer[:OWW_CHUNK_SIZE]
-                                oww_audio_buffer = oww_audio_buffer[OWW_CHUNK_SIZE:]
-                                audio_int16 = np.frombuffer(oww_chunk, dtype=np.int16)
-                                prediction = self.oww_model.predict(audio_int16)
-                                score = prediction.get(self.oww_model_name, 0.0)
-                                if score >= self.oww_threshold:
-                                    self.logger.info(
-                                        f"Wake word detected "
-                                        f"(score={score:.3f} >= {self.oww_threshold})"
-                                    )
-                                    oww_detected = True
-                                    break
+                        # Feed audio to OWW for wake word detection
+                        detect_wake_word(frame)
                     else:
                         if is_speech_active:
                             # Check buffer limit before adding frame
@@ -607,26 +613,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             speech_buffer.extend(frame)
 
                             # Feed silence frames to OWW too — it needs continuous audio
-                            if (
-                                self.detection_engine == "openwakeword"
-                                and not oww_detected
-                            ):
-                                oww_audio_buffer.extend(frame)
-                                while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
-                                    oww_chunk = oww_audio_buffer[:OWW_CHUNK_SIZE]
-                                    oww_audio_buffer = oww_audio_buffer[OWW_CHUNK_SIZE:]
-                                    audio_int16 = np.frombuffer(
-                                        oww_chunk, dtype=np.int16
-                                    )
-                                    prediction = self.oww_model.predict(audio_int16)
-                                    score = prediction.get(self.oww_model_name, 0.0)
-                                    if score >= self.oww_threshold:
-                                        self.logger.info(
-                                            f"Wake word detected "
-                                            f"(score={score:.3f} >= {self.oww_threshold})"
-                                        )
-                                        oww_detected = True
-                                        break
+                            detect_wake_word(frame)
 
                             silence_frames += 1
 
