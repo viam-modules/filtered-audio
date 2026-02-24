@@ -1439,6 +1439,46 @@ async def test_process_speech_segment_yields_nothing_when_no_wake_word():
         assert len(chunks) == 0
 
 
+@pytest.mark.asyncio
+async def test_do_command_pause_detection():
+    """Test do_command pauses detection"""
+    wake_word_filter = Mock()
+    wake_word_filter.detection_running = True
+    wake_word_filter.logger = Mock()
+
+    result = await WakeWordFilter.do_command(
+        wake_word_filter, {"pause_detection": None}
+    )
+
+    assert result == {"status": "paused"}
+    assert wake_word_filter.detection_running is False
+
+
+@pytest.mark.asyncio
+async def test_do_command_resume_detection():
+    """Test do_command resumes detection"""
+    wake_word_filter = Mock()
+    wake_word_filter.detection_running = False
+    wake_word_filter.logger = Mock()
+
+    result = await WakeWordFilter.do_command(
+        wake_word_filter, {"resume_detection": None}
+    )
+
+    assert result == {"status": "resumed"}
+    assert wake_word_filter.detection_running is True
+
+
+@pytest.mark.asyncio
+async def test_do_command_unknown_raises_error():
+    """Test do_command raises error for unknown commands"""
+    wake_word_filter = Mock()
+    wake_word_filter.logger = Mock()
+
+    with pytest.raises(ValueError, match="Unknown command"):
+        await WakeWordFilter.do_command(wake_word_filter, {"unknown": None})
+
+
 # OWW detection tests (via get_audio stream)
 
 def make_audio_chunk(num_bytes=960):
