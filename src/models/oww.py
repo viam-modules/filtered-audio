@@ -41,9 +41,7 @@ def setup_oww(instance, attrs):
     oww_model_path = os.path.expanduser(str(attrs.get("oww_model_path", "")))
 
     # Get user's wakeword model
-    if oww_model_path.startswith("http://") or oww_model_path.startswith(
-        "https://"
-    ):
+    if oww_model_path.startswith("http://") or oww_model_path.startswith("https://"):
         filename = oww_model_path.split("/")[-1]
         cache_dir = os.getenv("VIAM_MODULE_DATA", tempfile.gettempdir())
         cached_path = os.path.join(cache_dir, filename)
@@ -55,10 +53,10 @@ def setup_oww(instance, attrs):
 
         oww_model_path = cached_path
 
-    if not oww_model_path.startswith(("http://", "https://")) and not os.path.exists(oww_model_path):
-        raise ValueError(
-            f"oww_model_path does not exist: {oww_model_path}"
-        )
+    if not oww_model_path.startswith(("http://", "https://")) and not os.path.exists(
+        oww_model_path
+    ):
+        raise ValueError(f"oww_model_path does not exist: {oww_model_path}")
 
     instance.oww_threshold = float(attrs.get("oww_threshold", 0.5))
 
@@ -72,9 +70,7 @@ def setup_oww(instance, attrs):
 
     # Derive model name the same way openwakeword does internally:
     # basename without extension
-    instance.oww_model_name = os.path.splitext(
-        os.path.basename(oww_model_path)
-    )[0]
+    instance.oww_model_name = os.path.splitext(os.path.basename(oww_model_path))[0]
 
     instance.logger.info(
         f"openWakeWord model loaded (threshold={instance.oww_threshold})"

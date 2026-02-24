@@ -20,9 +20,7 @@ class TestSetupOww:
             }
         }
         mock_oww.VAD_MODELS = {
-            "silero_vad": {
-                "download_url": "https://example.com/silero_vad.tflite"
-            }
+            "silero_vad": {"download_url": "https://example.com/silero_vad.tflite"}
         }
         mock_oww.utils = Mock()
         return mock_oww
@@ -37,11 +35,14 @@ class TestSetupOww:
         mock_oww = self._mock_openwakeword()
         mock_oww_model_cls = Mock()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=mock_oww_model_cls),
-            "openwakeword.utils": mock_oww.utils,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openwakeword": mock_oww,
+                "openwakeword.model": Mock(Model=mock_oww_model_cls),
+                "openwakeword.utils": mock_oww.utils,
+            },
+        ):
             setup_oww(instance, {"oww_model_path": "/tmp/my_wakeword.onnx"})
 
         assert instance.oww_model == mock_oww_model_cls.return_value
@@ -59,11 +60,14 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openwakeword": mock_oww,
+                "openwakeword.model": Mock(Model=Mock()),
+                "openwakeword.utils": mock_oww.utils,
+            },
+        ):
             setup_oww(instance, {"oww_model_path": "/tmp/my_wakeword.onnx"})
 
         assert instance.oww_model_name == "my_wakeword"
@@ -77,11 +81,14 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }):
+        with patch.dict(
+            "sys.modules",
+            {
+                "openwakeword": mock_oww,
+                "openwakeword.model": Mock(Model=Mock()),
+                "openwakeword.utils": mock_oww.utils,
+            },
+        ):
             setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
 
         assert instance.oww_threshold == 0.5
@@ -95,15 +102,21 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }):
-            setup_oww(instance, {
-                "oww_model_path": "/tmp/model.onnx",
-                "oww_threshold": 0.8,
-            })
+        with patch.dict(
+            "sys.modules",
+            {
+                "openwakeword": mock_oww,
+                "openwakeword.model": Mock(Model=Mock()),
+                "openwakeword.utils": mock_oww.utils,
+            },
+        ):
+            setup_oww(
+                instance,
+                {
+                    "oww_model_path": "/tmp/model.onnx",
+                    "oww_threshold": 0.8,
+                },
+            )
 
         assert instance.oww_threshold == 0.8
 
@@ -128,17 +141,24 @@ class TestSetupOww:
                 return len(cached_checked) > 1
             return True
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }), \
-            patch("src.models.oww.os.path.exists", side_effect=exists_side_effect), \
-            patch("src.models.oww.os.getenv", return_value="/tmp/cache"):
-
-            setup_oww(instance, {
-                "oww_model_path": "https://example.com/my_model.onnx",
-            })
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=Mock()),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.os.path.exists", side_effect=exists_side_effect),
+            patch("src.models.oww.os.getenv", return_value="/tmp/cache"),
+        ):
+            setup_oww(
+                instance,
+                {
+                    "oww_model_path": "https://example.com/my_model.onnx",
+                },
+            )
 
         mock_download.assert_called_once_with(
             "https://example.com/my_model.onnx",
@@ -155,17 +175,24 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }), \
-            patch("src.models.oww.os.path.exists", return_value=True), \
-            patch("src.models.oww.os.getenv", return_value="/tmp/cache"):
-
-            setup_oww(instance, {
-                "oww_model_path": "https://example.com/my_model.onnx",
-            })
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=Mock()),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.os.path.exists", return_value=True),
+            patch("src.models.oww.os.getenv", return_value="/tmp/cache"),
+        ):
+            setup_oww(
+                instance,
+                {
+                    "oww_model_path": "https://example.com/my_model.onnx",
+                },
+            )
 
         mock_download.assert_not_called()
 
@@ -178,11 +205,17 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }), pytest.raises(ValueError, match="oww_model_path does not exist"):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=Mock()),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            pytest.raises(ValueError, match="oww_model_path does not exist"),
+        ):
             setup_oww(instance, {"oww_model_path": "/nonexistent/model.onnx"})
 
     @patch("src.models.oww.os.makedirs")
@@ -199,11 +232,17 @@ class TestSetupOww:
                 return False
             return True
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }), patch("src.models.oww.os.path.exists", side_effect=exists_side_effect):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=Mock()),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.os.path.exists", side_effect=exists_side_effect),
+        ):
             setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
 
         assert mock_oww.utils.download_file.call_count == 2  # one per model
@@ -216,11 +255,17 @@ class TestSetupOww:
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=Mock()),
-            "openwakeword.utils": mock_oww.utils,
-        }), patch("src.models.oww.os.path.exists", return_value=True):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=Mock()),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.os.path.exists", return_value=True),
+        ):
             setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
 
         mock_oww.utils.download_file.assert_not_called()
@@ -235,11 +280,17 @@ class TestSetupOww:
         mock_oww = self._mock_openwakeword()
         mock_oww_model_cls = Mock()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=mock_oww_model_cls),
-            "openwakeword.utils": mock_oww.utils,
-        }), patch("src.models.oww.sys") as mock_sys:
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.sys") as mock_sys,
+        ):
             mock_sys.platform = "linux"
             setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
 
@@ -248,11 +299,17 @@ class TestSetupOww:
 
         mock_oww_model_cls.reset_mock()
 
-        with patch.dict("sys.modules", {
-            "openwakeword": mock_oww,
-            "openwakeword.model": Mock(Model=mock_oww_model_cls),
-            "openwakeword.utils": mock_oww.utils,
-        }), patch("src.models.oww.sys") as mock_sys:
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.sys") as mock_sys,
+        ):
             mock_sys.platform = "darwin"
             setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
 

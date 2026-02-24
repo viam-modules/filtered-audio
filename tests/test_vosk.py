@@ -254,7 +254,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_vosk_model_name(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_default_vosk_model_name(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """No vosk_model in attrs -> uses DEFAULT_VOSK_MODEL."""
         instance = self._make_instance()
         setup_vosk(instance, {})
@@ -264,7 +266,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_vosk_model_name(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_custom_vosk_model_name(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """Custom vosk_model passed to get_vosk_model."""
         instance = self._make_instance()
         setup_vosk(instance, {"vosk_model": "vosk-model-en-us-0.22"})
@@ -274,7 +278,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_grammar_recognizer(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_creates_grammar_recognizer(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """use_grammar=True + wake_words -> KaldiRecognizer called with grammar JSON."""
         instance = self._make_instance(wake_words=["robot", "computer"])
         setup_vosk(instance, {"use_grammar": True})
@@ -284,6 +290,7 @@ class TestSetupVosk:
         assert args[1] == 16000
         # Third arg should be grammar JSON containing the wake words
         import json
+
         grammar = json.loads(args[2])
         assert "robot" in grammar
         assert "computer" in grammar
@@ -291,7 +298,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_plain_recognizer(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_creates_plain_recognizer(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """use_grammar=False -> KaldiRecognizer called without grammar."""
         instance = self._make_instance()
         setup_vosk(instance, {"use_grammar": False})
@@ -304,7 +313,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_plain_recognizer_no_wake_words(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_creates_plain_recognizer_no_wake_words(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """use_grammar=True but empty wake_words -> no grammar."""
         instance = self._make_instance(wake_words=[])
         setup_vosk(instance, {"use_grammar": True})
@@ -315,7 +326,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_enables_word_level_scores(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_enables_word_level_scores(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """recognizer.SetWords(True) called."""
         instance = self._make_instance()
         setup_vosk(instance, {})
@@ -326,7 +339,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_enables_fuzzy_matcher(self, mock_get, mock_vosk_model, mock_recognizer, mock_fuzzy):
+    def test_setup_vosk_enables_fuzzy_matcher(
+        self, mock_get, mock_vosk_model, mock_recognizer, mock_fuzzy
+    ):
         """fuzzy_threshold: 3 -> FuzzyWakeWordMatcher(threshold=3) stored on instance."""
         instance = self._make_instance()
         setup_vosk(instance, {"fuzzy_threshold": 3})
@@ -337,7 +352,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_no_fuzzy_matcher_by_default(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_no_fuzzy_matcher_by_default(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """No fuzzy_threshold -> instance.fuzzy_matcher is None."""
         instance = self._make_instance()
         setup_vosk(instance, {})
@@ -347,7 +364,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_use_grammar(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_default_use_grammar(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """Default use_grammar is True."""
         instance = self._make_instance()
         setup_vosk(instance, {})
@@ -357,7 +376,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_use_grammar_false(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_custom_use_grammar_false(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """use_grammar=False when provided."""
         instance = self._make_instance()
         setup_vosk(instance, {"use_grammar": False})
@@ -367,7 +388,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_grammar_confidence(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_default_grammar_confidence(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """Default grammar_confidence is 0.7."""
         instance = self._make_instance()
         setup_vosk(instance, {})
@@ -377,7 +400,9 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_grammar_confidence(self, mock_get, mock_vosk_model, mock_recognizer):
+    def test_setup_vosk_custom_grammar_confidence(
+        self, mock_get, mock_vosk_model, mock_recognizer
+    ):
         """Custom grammar_confidence when provided."""
         instance = self._make_instance()
         setup_vosk(instance, {"vosk_grammar_confidence": 0.85})

@@ -198,9 +198,7 @@ def setup_vosk(instance, attrs):
             instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
         )
     else:
-        instance.recognizer = KaldiRecognizer(
-            instance.vosk_model, AUDIO_SAMPLE_RATE_HZ
-        )
+        instance.recognizer = KaldiRecognizer(instance.vosk_model, AUDIO_SAMPLE_RATE_HZ)
 
     instance.recognizer.SetWords(True)  # Enable word-level confidence scores
     instance.logger.debug("Vosk recognizer initialized")
@@ -208,11 +206,7 @@ def setup_vosk(instance, attrs):
     # Fuzzy matching - enabled if fuzzy_threshold is set
     fuzzy_threshold = attrs.get("fuzzy_threshold", None)
     if fuzzy_threshold is not None:
-        instance.fuzzy_matcher = FuzzyWakeWordMatcher(
-            threshold=int(fuzzy_threshold)
-        )
-        instance.logger.info(
-            f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
-        )
+        instance.fuzzy_matcher = FuzzyWakeWordMatcher(threshold=int(fuzzy_threshold))
+        instance.logger.info(f"Fuzzy matching enabled with threshold={fuzzy_threshold}")
     else:
         instance.fuzzy_matcher = None
