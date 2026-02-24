@@ -16,12 +16,8 @@ import os
 import re
 import sys
 import pathlib
-import ssl
 import tempfile
-import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-
-import certifi
 from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
@@ -39,6 +35,7 @@ from viam.resource.types import Model, ModelFamily
 from viam.utils import struct_to_dict
 from viam.streams import StreamWithIterator
 
+from .download import download_file
 from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
 
 # Default configuration values
@@ -179,24 +176,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 if os.path.exists(cached_path):
                     instance.logger.info(f"Using cached OWW model: {cached_path}")
                 else:
-                    instance.logger.info(
-                        f"Downloading OWW model from {oww_model_path}..."
-                    )
-                    ssl_context = ssl.create_default_context(cafile=certifi.where())
-                    try:
-                        with urllib.request.urlopen(
-                            oww_model_path, context=ssl_context, timeout=120
-                        ) as resp:
-                            with open(cached_path, "wb") as f:
-                                while True:
-                                    chunk = resp.read(8192)
-                                    if not chunk:
-                                        break
-                                    f.write(chunk)
-                    except Exception:
-                        if os.path.exists(cached_path):
-                            os.remove(cached_path)
-                        raise
+                    download_file(oww_model_path, cached_path, instance.logger)
 
                 oww_model_path = cached_path
 
@@ -363,9 +343,11 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Validate openWakeWord-specific config
         if detection_engine == "openwakeword":
             oww_model_path: Any = attrs.get("oww_model_path", "")
-            if not oww_model_path or not isinstance(oww_model_path, str):
+            if not isinstance(oww_model_path, str) or not oww_model_path:
                 raise ValueError(
-                    "oww_model_path is required when detection_engine is 'openwakeword'"
+                    "oww_model_path must be a non-empty string"
+                    if not isinstance(oww_model_path, str)
+                    else "oww_model_path is required when detection_engine is 'openwakeword'"
                 )
 
             oww_threshold: Any = attrs.get("oww_threshold", None)

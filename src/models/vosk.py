@@ -4,10 +4,9 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-import ssl
-import urllib.request
 import zipfile
-import certifi
+
+from .download import download_file
 
 
 BASE_VOSK_URL = "https://alphacephei.com/vosk/models"
@@ -139,18 +138,9 @@ def _download_vosk_model(model_name, logger) -> str:
 
     url = f"{BASE_VOSK_URL}/{model_name}.zip"
     zip_path = (Path(tempfile.gettempdir()) / f"{model_name}.zip").resolve()
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-
-    logger.debug(f"Downloading Vosk model from {url}...")
 
     try:
-        with urllib.request.urlopen(url, context=ssl_context, timeout=120) as response:
-            with open(zip_path, "wb") as out_file:
-                while True:
-                    chunk = response.read(8192)
-                    if not chunk:
-                        break
-                    out_file.write(chunk)
+        download_file(url, str(zip_path), logger)
     except Exception as e:
         logger.error(f"Failed to download Vosk model: {e}")
         raise RuntimeError(f"Failed to download Vosk model: {e}")
