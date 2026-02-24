@@ -58,7 +58,6 @@ def integration_env():
         yield
 
 
-
 class TestGetAudioIntegration:
     """Integration tests for the full get_audio() pipeline."""
 
@@ -149,7 +148,7 @@ class TestGetAudioIntegration:
     async def test_no_wake_word_yields_no_chunks(
         self, wake_word_filter, mock_microphone
     ):
-        """Test full pipeline: wake word audio → VAD → no wake word -> yields no chunks """
+        """Test full pipeline: wake word audio → VAD → no wake word -> yields no chunks"""
         wake_word_audio = get_speech_audio("turn on the lights")
 
         # Split into chunks (simulating mic stream)
@@ -192,9 +191,7 @@ class TestGetAudioIntegration:
 
         mock_microphone.get_audio.return_value = silence_stream()
 
-        with patch.object(
-            wake_word_filter, "_check_for_wake_word"
-        ) as mock_vosk:
+        with patch.object(wake_word_filter, "_check_for_wake_word") as mock_vosk:
             stream = await wake_word_filter.get_audio("pcm16", 0, 0)
             async for _ in stream:
                 pass

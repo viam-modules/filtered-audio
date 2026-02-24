@@ -1,6 +1,5 @@
 import pytest
-import numpy as np
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import Mock, AsyncMock, patch
 from src.models.wake_word_filter import WakeWordFilter
 
 
@@ -1022,7 +1021,9 @@ def test_validate_config_rejects_invalid_detection_engine(mock_env):
         "detection_engine": "whisper",
     }
 
-    with pytest.raises(ValueError, match="detection_engine must be 'vosk' or 'openwakeword'"):
+    with pytest.raises(
+        ValueError, match="detection_engine must be 'vosk' or 'openwakeword'"
+    ):
         WakeWordFilter.validate_config(config)
 
 
@@ -1481,6 +1482,7 @@ async def test_do_command_unknown_raises_error():
 
 # OWW detection tests (via get_audio stream)
 
+
 def make_audio_chunk(num_bytes=960):
     """Create a mock audio chunk with silence audio data."""
     chunk = Mock()
@@ -1534,7 +1536,9 @@ async def test_oww_detects_wake_word_above_threshold():
 
     wf.vad.is_speech.side_effect = [True] * 15 + [False] * 35
 
-    wf.microphone_client.get_audio.return_value = async_iter(speech_chunks + silence_chunks)
+    wf.microphone_client.get_audio.return_value = async_iter(
+        speech_chunks + silence_chunks
+    )
     wf.microphone_client.get_properties.return_value = Mock(
         sample_rate_hz=16000, num_channels=1
     )
@@ -1558,7 +1562,9 @@ async def test_oww_does_not_yield_when_below_threshold():
     speech_chunks = [make_audio_chunk(960) for _ in range(15)]
     silence_chunks = [make_audio_chunk(960) for _ in range(35)]
 
-    wf.microphone_client.get_audio.return_value = async_iter(speech_chunks + silence_chunks)
+    wf.microphone_client.get_audio.return_value = async_iter(
+        speech_chunks + silence_chunks
+    )
     wf.microphone_client.get_properties.return_value = Mock(
         sample_rate_hz=16000, num_channels=1
     )
@@ -1567,6 +1573,7 @@ async def test_oww_does_not_yield_when_below_threshold():
     chunks = await collect_stream(stream)
 
     assert len(chunks) == 0
+
 
 @pytest.mark.asyncio
 async def test_oww_resets_model_after_segment():
@@ -1580,7 +1587,9 @@ async def test_oww_resets_model_after_segment():
     speech_chunks = [make_audio_chunk(960) for _ in range(15)]
     silence_chunks = [make_audio_chunk(960) for _ in range(35)]
 
-    wf.microphone_client.get_audio.return_value = async_iter(speech_chunks + silence_chunks)
+    wf.microphone_client.get_audio.return_value = async_iter(
+        speech_chunks + silence_chunks
+    )
     wf.microphone_client.get_properties.return_value = Mock(
         sample_rate_hz=16000, num_channels=1
     )

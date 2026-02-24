@@ -2,7 +2,6 @@
 
 import os
 import ssl
-import tempfile
 import urllib.request
 
 import certifi
