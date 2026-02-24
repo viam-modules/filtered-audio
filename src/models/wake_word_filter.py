@@ -12,20 +12,12 @@ from typing import (
 import asyncio
 import json
 import logging
-import os
 import re
-import sys
-import pathlib
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
-from vosk import Model as VoskModel, KaldiRecognizer
 import webrtcvad
 from typing_extensions import Self
-import numpy as np  # noqa: F401
-import openwakeword
-from openwakeword.model import Model as OWWModel
+import numpy as np
 
-from .fuzzy_matcher import FuzzyWakeWordMatcher
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
@@ -35,8 +27,8 @@ from viam.resource.types import Model, ModelFamily
 from viam.utils import struct_to_dict
 from viam.streams import StreamWithIterator
 
-from .download import download_file
-from .vosk import get_vosk_model, DEFAULT_VOSK_MODEL
+from .oww import setup_oww
+from .vosk import setup_vosk
 
 # Default configuration values
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
@@ -58,12 +50,12 @@ class WakeWordFilter(AudioIn, EasyResource):
     logger: logging.Logger
     wake_words: List[str]
     vad: webrtcvad.Vad
-    vosk_model: VoskModel
-    recognizer: KaldiRecognizer
+    vosk_model: Any
+    recognizer: Any
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
-    fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
+    fuzzy_matcher: Optional[Any]
     silence_duration_ms: int
     min_speech_duration_ms: int
     detection_running: bool
@@ -82,6 +74,18 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         attrs = struct_to_dict(config.attributes)
         microphone = str(attrs.get("source_microphone", ""))
+        # Get source microphone
+        if microphone:
+            mic = dependencies[AudioIn.get_resource_name(microphone)]
+            instance.microphone_client = cast(AudioIn, mic)
+        else:
+            instance.logger.error(
+                "wake-word-filter must have a source microphone, no microphone found"
+            )
+            raise RuntimeError(
+                "wake-word-filter must have a source microphone, no microphone found"
+            )
+
         wake_words = attrs.get("wake_words", [])
 
         # Handle both single string and list
@@ -92,22 +96,9 @@ class WakeWordFilter(AudioIn, EasyResource):
         else:
             instance.wake_words = []
 
-        model = str(attrs.get("vosk_model", DEFAULT_VOSK_MODEL))
         vad_aggressiveness = int(
             attrs.get("vad_aggressiveness", DEFAULT_VAD_AGGRESSIVENESS)
         )
-
-        # Fuzzy matching - enabled if fuzzy_threshold is set
-        fuzzy_threshold = attrs.get("fuzzy_threshold", None)
-        if fuzzy_threshold is not None:
-            instance.fuzzy_matcher = FuzzyWakeWordMatcher(
-                threshold=int(fuzzy_threshold)
-            )
-            instance.logger.info(
-                f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
-            )
-        else:
-            instance.fuzzy_matcher = None
 
         instance.silence_duration_ms = int(
             attrs.get("silence_duration_ms", DEFAULT_SILENCE_DURATION_MS)
@@ -119,17 +110,6 @@ class WakeWordFilter(AudioIn, EasyResource):
         )
         instance.logger.info(
             f"min speech segment duration: {instance.min_speech_duration_ms}ms"
-        )
-
-        # Grammar mode - default True for constrained wake word recognition
-        instance.use_grammar = attrs.get("use_grammar", True)
-        instance.logger.info(f"Vosk grammar mode: {instance.use_grammar}")
-
-        instance.grammar_confidence = float(
-            attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
-        )
-        instance.logger.info(
-            "Vosk grammar confidence threshold: %.2f", instance.grammar_confidence
         )
 
         # Initialize WebRTC VAD (used by both engines)
@@ -148,73 +128,9 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.oww_threshold = 0.5
 
         if instance.detection_engine == "openwakeword":
-            # Ensure preprocessing models exist (bundled by PyInstaller, or download as fallback)
-            models_dir = os.path.join(
-                pathlib.Path(openwakeword.__file__).parent.resolve(),
-                "resources",
-                "models",
-            )
-            os.makedirs(models_dir, exist_ok=True)
-            for m in list(openwakeword.FEATURE_MODELS.values()) + list(
-                openwakeword.VAD_MODELS.values()
-            ):
-                url = m["download_url"].replace(".tflite", ".onnx")
-                fname = url.split("/")[-1]
-                if not os.path.exists(os.path.join(models_dir, fname)):
-                    instance.logger.info(f"Downloading OWW model: {fname}")
-                    openwakeword.utils.download_file(url, models_dir)
-
-            oww_model_path = os.path.expanduser(str(attrs.get("oww_model_path", "")))
-
-            if oww_model_path.startswith("http://") or oww_model_path.startswith(
-                "https://"
-            ):
-                filename = oww_model_path.split("/")[-1]
-                cache_dir = os.getenv("VIAM_MODULE_DATA", tempfile.gettempdir())
-                cached_path = os.path.join(cache_dir, filename)
-
-                if os.path.exists(cached_path):
-                    instance.logger.info(f"Using cached OWW model: {cached_path}")
-                else:
-                    download_file(oww_model_path, cached_path, instance.logger)
-
-                oww_model_path = cached_path
-
-            instance.oww_threshold = float(attrs.get("oww_threshold", 0.5))
-
-            instance.oww_model = OWWModel(
-                wakeword_models=[oww_model_path],
-                inference_framework="onnx",
-                enable_speex_noise_suppression=(sys.platform == "linux"),
-            )
-
-            # Derive model name the same way openwakeword does internally:
-            # basename without extension
-            instance.oww_model_name = os.path.splitext(
-                os.path.basename(oww_model_path)
-            )[0]
-
-            instance.logger.info(
-                f"openWakeWord model loaded (threshold={instance.oww_threshold})"
-            )
+            setup_oww(instance, attrs)
         else:
-            # Load Vosk model (checks bundled, then cached, then downloads)
-            model_path = get_vosk_model(model, instance.logger)
-            instance.vosk_model = VoskModel(model_path)
-            instance.logger.debug("Vosk model loaded")
-
-            # Create recognizer (reused for each wake word check)
-            if instance.use_grammar and instance.wake_words:
-                grammar = json.dumps(instance.wake_words)
-                instance.recognizer = KaldiRecognizer(
-                    instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
-                )
-            else:
-                instance.recognizer = KaldiRecognizer(
-                    instance.vosk_model, AUDIO_SAMPLE_RATE_HZ
-                )
-            instance.recognizer.SetWords(True)  # Enable word-level confidence scores
-            instance.logger.debug("Vosk recognizer initialized")
+            setup_vosk(instance, attrs)
 
         # Create thread pool for processing (non-blocking)
         instance.executor = ThreadPoolExecutor(
@@ -222,18 +138,6 @@ class WakeWordFilter(AudioIn, EasyResource):
         )
         instance.is_shutting_down = False
         instance.logger.debug("Thread pool executor created")
-
-        # Get source microphone
-        if microphone:
-            mic = dependencies[AudioIn.get_resource_name(microphone)]
-            instance.microphone_client = cast(AudioIn, mic)
-        else:
-            instance.logger.error(
-                "wake-word-filter must have a source microphone, no microphone found"
-            )
-            raise RuntimeError(
-                "wake-word-filter must have a source microphone, no microphone found"
-            )
 
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True

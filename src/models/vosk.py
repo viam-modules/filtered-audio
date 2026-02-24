@@ -1,12 +1,16 @@
 """Vosk model utilities."""
 
+import json
 import os
 import sys
 import tempfile
 from pathlib import Path
 import zipfile
 
+from vosk import Model as VoskModel, KaldiRecognizer
+
 from .download import download_file
+from .fuzzy_matcher import FuzzyWakeWordMatcher
 
 
 BASE_VOSK_URL = "https://alphacephei.com/vosk/models"
@@ -157,3 +161,58 @@ def _download_vosk_model(model_name, logger) -> str:
 
     logger.info("Vosk model downloaded and extracted successfully")
     return model_dir
+
+
+# Imported here to avoid circular imports at module level
+AUDIO_SAMPLE_RATE_HZ = 16000
+DEFAULT_GRAMMAR_CONFIDENCE = 0.7
+
+
+def setup_vosk(instance, attrs):
+    """
+    Set up Vosk detection engine on a WakeWordFilter instance.
+
+    Loads the Vosk model, creates a KaldiRecognizer (optionally with
+    grammar), and configures fuzzy matching if requested.
+    """
+    # Load Vosk model (checks bundled, then cached, then downloads)
+    vosk_model = str(attrs.get("vosk_model", DEFAULT_VOSK_MODEL))
+    model_path = get_vosk_model(vosk_model, instance.logger)
+    instance.vosk_model = VoskModel(model_path)
+    instance.logger.debug("Vosk model loaded")
+
+    # Grammar mode - default True for constrained wake word recognition
+    instance.use_grammar = attrs.get("use_grammar", True)
+    instance.grammar_confidence = float(
+        attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
+    )
+    instance.logger.info(f"Vosk grammar mode: {instance.use_grammar}")
+    instance.logger.info(
+        f"Vosk grammar confidence threshold: {instance.grammar_confidence:.2f}"
+    )
+
+    # Create recognizer (reused for each wake word check)
+    if instance.use_grammar and instance.wake_words:
+        grammar = json.dumps(instance.wake_words)
+        instance.recognizer = KaldiRecognizer(
+            instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
+        )
+    else:
+        instance.recognizer = KaldiRecognizer(
+            instance.vosk_model, AUDIO_SAMPLE_RATE_HZ
+        )
+
+    instance.recognizer.SetWords(True)  # Enable word-level confidence scores
+    instance.logger.debug("Vosk recognizer initialized")
+
+    # Fuzzy matching - enabled if fuzzy_threshold is set
+    fuzzy_threshold = attrs.get("fuzzy_threshold", None)
+    if fuzzy_threshold is not None:
+        instance.fuzzy_matcher = FuzzyWakeWordMatcher(
+            threshold=int(fuzzy_threshold)
+        )
+        instance.logger.info(
+            f"Fuzzy matching enabled with threshold={fuzzy_threshold}"
+        )
+    else:
+        instance.fuzzy_matcher = None

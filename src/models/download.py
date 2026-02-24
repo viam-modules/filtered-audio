@@ -1,5 +1,3 @@
-"""File download utilities."""
-
 import os
 import ssl
 import urllib.request
@@ -15,7 +13,6 @@ def download_file(url, dest_path, logger=None):
         url: URL to download from
         dest_path: Local path to save the file
         logger: Optional logger instance
-        timeout: Request timeout in seconds
 
     Returns:
         Path to the downloaded file

@@ -28,24 +28,18 @@ def mock_env():
     """Mock all WakeWordFilter.new() dependencies"""
     with (
         patch("src.models.wake_word_filter.struct_to_dict") as mock_struct,
-        patch("src.models.wake_word_filter.VoskModel") as mock_vosk,
-        patch("src.models.wake_word_filter.KaldiRecognizer") as mock_recognizer,
+        patch("src.models.wake_word_filter.setup_vosk") as mock_setup_vosk,
         patch("src.models.wake_word_filter.webrtcvad.Vad") as mock_vad,
         patch("src.models.wake_word_filter.ThreadPoolExecutor") as mock_executor,
-        patch(
-            "src.models.wake_word_filter.get_vosk_model", return_value="/tmp/vosk-model"
-        ) as mock_get_vosk,
         patch(
             "src.models.wake_word_filter.AudioIn.get_resource_name", return_value="mic1"
         ) as mock_resource,
     ):
         yield {
             "struct_to_dict": mock_struct,
-            "vosk": mock_vosk,
-            "recognizer": mock_recognizer,
+            "setup_vosk": mock_setup_vosk,
             "vad": mock_vad,
             "executor": mock_executor,
-            "get_vosk_model": mock_get_vosk,
             "resource_name": mock_resource,
         }
 
@@ -590,7 +584,7 @@ def test_new_uses_custom_vad_aggressiveness(mock_env):
 
 
 def test_new_loads_vosk_model(mock_env):
-    """Test new() loads Vosk model from correct path"""
+    """Test new() calls setup_vosk for vosk engine"""
     config = Mock()
     mic = AsyncMock()
     dependencies = {}
@@ -604,10 +598,8 @@ def test_new_loads_vosk_model(mock_env):
     dependencies["mic1"] = mic
     WakeWordFilter.new(config, dependencies)
 
-    # Verify get_vosk_model was called with the model name
-    mock_env["get_vosk_model"].assert_called_once()
-    # Verify VoskModel was called with the path returned by get_vosk_model
-    mock_env["vosk"].assert_called_once_with("/tmp/vosk-model")
+    # Verify setup_vosk was called
+    mock_env["setup_vosk"].assert_called_once()
 
 
 def test_new_sets_microphone_client(mock_env):
@@ -696,79 +688,11 @@ def test_new_uses_custom_min_speech_duration_ms(mock_env):
     assert instance.min_speech_duration_ms == 500
 
 
-def test_new_uses_default_use_grammar(mock_env):
-    """Test new() uses default use_grammar=True when not specified"""
-    config = Mock()
-    mic = AsyncMock()
-
-    mock_env["struct_to_dict"].return_value = {
-        "source_microphone": "mic1",
-        "wake_words": ["robot"],
-    }
-
-    dependencies = {"mic1": mic}
-    instance = WakeWordFilter.new(config, dependencies)
-
-    # Default is True (grammar mode)
-    assert instance.use_grammar is True
-
-
-def test_new_uses_custom_use_grammar_false(mock_env):
-    """Test new() uses custom use_grammar=False when provided"""
-    config = Mock()
-    mic = AsyncMock()
-
-    mock_env["struct_to_dict"].return_value = {
-        "source_microphone": "mic1",
-        "wake_words": ["robot"],
-        "use_grammar": False,
-    }
-
-    dependencies = {"mic1": mic}
-    instance = WakeWordFilter.new(config, dependencies)
-
-    assert instance.use_grammar is False
-
-
-def test_new_uses_default_grammar_confidence(mock_env):
-    """Test new() uses defaultvosk_grammar_confidence when not specified"""
-    config = Mock()
-    mic = AsyncMock()
-
-    mock_env["struct_to_dict"].return_value = {
-        "source_microphone": "mic1",
-        "wake_words": ["robot"],
-    }
-
-    dependencies = {"mic1": mic}
-    instance = WakeWordFilter.new(config, dependencies)
-
-    # Default is 0.7
-    assert instance.grammar_confidence == 0.7
-
-
-def test_new_uses_custom_grammar_confidence(mock_env):
-    """Test new() uses custom vosk_grammar_confidence when provided"""
-    config = Mock()
-    mic = AsyncMock()
-
-    mock_env["struct_to_dict"].return_value = {
-        "source_microphone": "mic1",
-        "wake_words": ["robot"],
-        "vosk_grammar_confidence": 0.85,
-    }
-
-    dependencies = {"mic1": mic}
-    instance = WakeWordFilter.new(config, dependencies)
-
-    assert instance.grammar_confidence == 0.85
-
-
 # # Error case tests for WakeWordFilter.new()
 
 
-def test_new_fails_when_get_vosk_model_fails(mock_env):
-    """Test new() raises error when get_vosk_model fails"""
+def test_new_fails_when_setup_vosk_fails(mock_env):
+    """Test new() raises error when setup_vosk fails"""
     config = Mock()
     mic = AsyncMock()
 
@@ -777,8 +701,8 @@ def test_new_fails_when_get_vosk_model_fails(mock_env):
         "wake_words": ["robot"],
     }
 
-    # Make get_vosk_model raise an error
-    mock_env["get_vosk_model"].side_effect = RuntimeError("Model not found")
+    # Make setup_vosk raise an error
+    mock_env["setup_vosk"].side_effect = RuntimeError("Model not found")
 
     dependencies = {"mic1": mic}
 
@@ -786,23 +710,24 @@ def test_new_fails_when_get_vosk_model_fails(mock_env):
         WakeWordFilter.new(config, dependencies)
 
 
-def test_new_calls_get_vosk_model_with_model_name(mock_env):
-    """Test new() calls get_vosk_model with the configured model name"""
+def test_new_calls_setup_vosk_with_attrs(mock_env):
+    """Test new() calls setup_vosk with instance and attrs"""
     config = Mock()
     mic = AsyncMock()
 
-    mock_env["struct_to_dict"].return_value = {
+    attrs = {
         "source_microphone": "mic1",
         "wake_words": ["robot"],
         "vosk_model": "vosk-model-en-us-0.22",
     }
+    mock_env["struct_to_dict"].return_value = attrs
 
     dependencies = {"mic1": mic}
     WakeWordFilter.new(config, dependencies)
 
-    # Verify get_vosk_model was called with the model name
-    call_args = mock_env["get_vosk_model"].call_args
-    assert call_args[0][0] == "vosk-model-en-us-0.22"
+    # Verify setup_vosk was called with the instance and attrs
+    call_args = mock_env["setup_vosk"].call_args
+    assert call_args[0][1] == attrs
 
 
 def test_new_handles_missing_microphone_in_dependencies(mock_env):
