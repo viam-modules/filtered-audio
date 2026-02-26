@@ -32,7 +32,7 @@ def setup_oww(instance, attrs):
     for m in list(openwakeword.FEATURE_MODELS.values()) + list(
         openwakeword.VAD_MODELS.values()
     ):
-        url = m["download_url"].replace(".tflite", ".onnx")
+        url = m["download_url"]
         fname = url.split("/")[-1]
         if not os.path.exists(os.path.join(models_dir, fname)):
             instance.logger.info(f"Downloading OWW model: {fname}")
@@ -63,7 +63,7 @@ def setup_oww(instance, attrs):
     instance.logger.debug("Loading OWW model...")
     instance.oww_model = OWWModel(
         wakeword_models=[oww_model_path],
-        inference_framework="onnx",
+        inference_framework="tflite",
         enable_speex_noise_suppression=(sys.platform == "linux"),
     )
     instance.logger.debug("OWW model loaded")

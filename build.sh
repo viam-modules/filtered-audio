@@ -20,13 +20,13 @@ else
     echo "Vosk model already exists at $VOSK_MODELS_DIR/$VOSK_MODEL"
 fi
 
-# Download only openwakeword preprocessing .onnx models (not bundled wake words)
+# Download only openwakeword preprocessing .tflite models (not bundled wake words)
 $PYTHON -c "
 import os, openwakeword, openwakeword.utils
 d = os.path.join(os.path.dirname(openwakeword.__file__), 'resources', 'models')
 os.makedirs(d, exist_ok=True)
 for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
-    url = m['download_url'].replace('.tflite', '.onnx')
+    url = m['download_url']
     f = os.path.join(d, url.split('/')[-1])
     if not os.path.exists(f):
         openwakeword.utils.download_file(url, d)

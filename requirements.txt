@@ -7,10 +7,9 @@ vosk~=0.3.44
 pydub~=0.25.1
 certifi==2025.11.12
 rapidfuzz~=3.14.3
-# openwakeword>=0.6.0 is installed with --no-deps in setup.sh
-# to avoid tflite-runtime (we use ONNX inference only).
+# openwakeword>=0.6.0 is installed with --no-deps in setup.sh.
 # These are its runtime deps we actually need:
-onnxruntime>=1.10.0
+tflite-runtime>=2.14.0
 scipy>=1.3.0
 scikit-learn>=1.0.0
 tqdm>=4.0.0

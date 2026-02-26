@@ -1,4 +1,5 @@
 from typing import (
+    TYPE_CHECKING,
     ClassVar,
     Mapping,
     Sequence,
@@ -30,6 +31,11 @@ from viam.streams import StreamWithIterator
 from .oww import setup_oww
 from .vosk import setup_vosk
 
+if TYPE_CHECKING:
+    from vosk import Model as VoskModel, KaldiRecognizer
+    from openwakeword.model import Model as OWWModel
+    from .fuzzy_matcher import FuzzyWakeWordMatcher
+
 # Default configuration values
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
 AUDIO_SAMPLE_RATE_HZ = 16000
@@ -50,19 +56,19 @@ class WakeWordFilter(AudioIn, EasyResource):
     logger: logging.Logger
     wake_words: List[str]
     vad: webrtcvad.Vad
-    vosk_model: Any
-    recognizer: Any
+    vosk_model: "VoskModel"
+    recognizer: "KaldiRecognizer"
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
-    fuzzy_matcher: Optional[Any]
+    fuzzy_matcher: Optional["FuzzyWakeWordMatcher"]
     silence_duration_ms: int
     min_speech_duration_ms: int
     detection_running: bool
     grammar_confidence: float
     use_grammar: bool
     detection_engine: str
-    oww_model: Optional[Any]
+    oww_model: Optional["OWWModel"]
     oww_model_name: Optional[str]
     oww_threshold: float
 
@@ -388,7 +394,7 @@ class WakeWordFilter(AudioIn, EasyResource):
             # increasing overall efficiency at the cost of detection latency
             # 16khz * .080 sec = 1280 samples
             oww_audio_buffer = bytearray()
-            OWW_CHUNK_SIZE = 2560  # 1280 samples * 2 bytes per int16 (80ms)
+            OWW_CHUNK_SIZE = 5120  # 2560 samples * 2 bytes per int16 (160ms)
 
             def reset_buffers():
                 """Clear all buffers and reset speech state."""

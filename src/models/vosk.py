@@ -15,6 +15,8 @@ from .fuzzy_matcher import FuzzyWakeWordMatcher
 
 BASE_VOSK_URL = "https://alphacephei.com/vosk/models"
 DEFAULT_VOSK_MODEL = "vosk-model-small-en-us-0.15"
+AUDIO_SAMPLE_RATE_HZ = 16000
+DEFAULT_GRAMMAR_CONFIDENCE = 0.7
 
 
 def _get_bundled_models_dir() -> str:
@@ -161,11 +163,6 @@ def _download_vosk_model(model_name, logger) -> str:
 
     logger.info("Vosk model downloaded and extracted successfully")
     return model_dir
-
-
-# Imported here to avoid circular imports at module level
-AUDIO_SAMPLE_RATE_HZ = 16000
-DEFAULT_GRAMMAR_CONFIDENCE = 0.7
 
 
 def setup_vosk(instance, attrs):
