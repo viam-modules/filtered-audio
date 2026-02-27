@@ -7,7 +7,7 @@ datas = [
 binaries = []
 hiddenimports = ['googleapiclient', 'pkg_resources']
 
-tmp_ret = collect_all('setuptools')
+tmp_ret = collect_all('pkg_resources')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 tmp_ret = collect_all('vosk')
