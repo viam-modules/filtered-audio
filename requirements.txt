@@ -1,5 +1,6 @@
 
 viam-sdk==0.63.0
+setuptools
 
 typing-extensions
 webrtcvad==2.0.10
