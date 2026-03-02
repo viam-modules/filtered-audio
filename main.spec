@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas = [
-    ('vosk_models', 'vosk_models'),
+    ('vosk_models', 'vosk_models'),  # Bundled Vosk models
 ]
 binaries = []
 hiddenimports = ['googleapiclient']
@@ -22,7 +22,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=['hooks'],
+    hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
