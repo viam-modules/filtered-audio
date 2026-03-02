@@ -18,10 +18,20 @@ This module provides the following model(s):
 ### Configuration
 The following attribute template can be used to configure this model:
 
+For `vosk`:
 ```json
 {
   "source_microphone" : <AUDIO_IN NAME>,
   "wake_words": ["<word>"]
+}
+```
+
+For `openwakeword`:
+```json
+{
+  "source_microphone": <AUDIO_IN NAME>,
+  "detection_engine": "openwakeword",
+  "oww_model_path": "<path or URL to .onnx model>"
 }
 ```
 
@@ -32,7 +42,6 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
 | `source_microphone` | string | **Required** | Name of a Viam AudioIn component to recieve and filter audio from.
-| `wake_words` | string array | **Required** | Wake words to filter speech. All speech segments said after the wake words will be returned from get_audio.
 | `detection_engine` | string | **Optional** | Wake word detection engine to use. Options: `vosk`, `openwakeword`. Default: `vosk`.
 | `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise as speech. Range: 0-3. Default: 3.
 | `silence_duration_ms` | int | **Optional** | Milliseconds of continuous silence needed before speech is considered finished. Default: 900
@@ -42,6 +51,7 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
+| `wake_words` | string array | **Required** | Wake words to filter speech. All speech segments said after the wake words will be returned from get_audio.
 | `vosk_model` | string | **Optional** | Vosk model to use for speech recognition. Accepts a model name, directory path, or zip file path. Default: `vosk-model-small-en-us-0.15`. See [list](https://alphacephei.com/vosk/models) of available models. For models larger than 1GB, download manually and provide the file path.
 | `use_grammar` | bool | **Optional** | When true, Vosk uses grammar-constrained recognition limited to wake words for better accuracy with short wake words. When false, uses full transcription mode which has higher accuracy for longer wake phrases (3+ words). Default: true
 | `vosk_grammar_confidence` | float | **Optional** | Minimum confidence threshold (0.0-1.0) for wake word recognition. Lower confidence matches will be rejected. Default: 0.7

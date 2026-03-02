@@ -178,24 +178,28 @@ class WakeWordFilter(AudioIn, EasyResource):
         deps.append(mic)
 
         wake_words: Any = attrs.get("wake_words", [])
-        if wake_words == []:
-            raise ValueError("wake_words attribute is required")
-
-        # Validate wake_words are strings
-        if isinstance(wake_words, str):
-            # Single string is valid
-            pass
-        elif isinstance(wake_words, list):
-            # List must contain only strings
-            for word in wake_words:
-                if not isinstance(word, str):
-                    raise ValueError(
-                        f"All wake_words must be strings, got {type(word).__name__}"
-                    )
-        else:
+        _engine = attrs.get("detection_engine", "vosk")
+        if _engine != "openwakeword" and not wake_words:
             raise ValueError(
-                f"wake_words must be a string or list of strings, got {type(wake_words).__name__}"
+                "wake_words is required when using the vosk detection engine"
             )
+
+        # Validate wake_words type if provided
+        if wake_words:
+            if isinstance(wake_words, str):
+                # Single string is valid
+                pass
+            elif isinstance(wake_words, list):
+                # List must contain only strings
+                for word in wake_words:
+                    if not isinstance(word, str):
+                        raise ValueError(
+                            f"All wake_words must be strings, got {type(word).__name__}"
+                        )
+            else:
+                raise ValueError(
+                    f"wake_words must be a string or list of strings, got {type(wake_words).__name__}"
+                )
 
         # Validate VAD aggressiveness
         vad_aggressiveness: Any = attrs.get("vad_aggressiveness", None)
