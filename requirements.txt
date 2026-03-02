@@ -1,9 +1,9 @@
 
 viam-sdk==0.63.0
 
-typing-extensions
-webrtcvad==2.0.10
-vosk~=0.3.44
-pydub~=0.25.1
+typing-extensions==4.15.0
+webrtcvad-wheels==2.0.14
+vosk==0.3.44
+pydub==0.25.1
 certifi==2025.11.12
-rapidfuzz~=3.14.3
+rapidfuzz==3.14.3
