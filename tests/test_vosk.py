@@ -245,7 +245,7 @@ class TestSetupVosk:
     def test_setup_vosk_loads_model(self, mock_get, mock_vosk_model, mock_recognizer):
         """get_vosk_model called, VoskModel created with returned path."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
         mock_vosk_model.assert_called_once_with("/tmp/vosk-model")
@@ -257,9 +257,9 @@ class TestSetupVosk:
     def test_setup_vosk_default_vosk_model_name(
         self, mock_get, mock_vosk_model, mock_recognizer
     ):
-        """No vosk_model in attrs -> uses DEFAULT_VOSK_MODEL."""
+        """No vosk_model provided -> uses DEFAULT_VOSK_MODEL."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
 
@@ -271,7 +271,7 @@ class TestSetupVosk:
     ):
         """Custom vosk_model passed to get_vosk_model."""
         instance = self._make_instance()
-        setup_vosk(instance, {"vosk_model": "vosk-model-en-us-0.22"})
+        setup_vosk(instance, vosk_model="vosk-model-en-us-0.22")
 
         mock_get.assert_called_once_with("vosk-model-en-us-0.22", instance.logger)
 
@@ -283,7 +283,7 @@ class TestSetupVosk:
     ):
         """use_grammar=True + wake_words -> KaldiRecognizer called with grammar JSON."""
         instance = self._make_instance(wake_words=["robot", "computer"])
-        setup_vosk(instance, {"use_grammar": True})
+        setup_vosk(instance, use_grammar=True)
 
         args = mock_recognizer.call_args[0]
         assert args[0] == mock_vosk_model.return_value
@@ -303,7 +303,7 @@ class TestSetupVosk:
     ):
         """use_grammar=False -> KaldiRecognizer called without grammar."""
         instance = self._make_instance()
-        setup_vosk(instance, {"use_grammar": False})
+        setup_vosk(instance, use_grammar=False)
 
         args = mock_recognizer.call_args[0]
         assert len(args) == 2  # No grammar argument
@@ -318,7 +318,7 @@ class TestSetupVosk:
     ):
         """use_grammar=True but empty wake_words -> no grammar."""
         instance = self._make_instance(wake_words=[])
-        setup_vosk(instance, {"use_grammar": True})
+        setup_vosk(instance, use_grammar=True)
 
         args = mock_recognizer.call_args[0]
         assert len(args) == 2  # No grammar argument
@@ -331,7 +331,7 @@ class TestSetupVosk:
     ):
         """recognizer.SetWords(True) called."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         mock_recognizer.return_value.SetWords.assert_called_once_with(True)
 
@@ -342,9 +342,9 @@ class TestSetupVosk:
     def test_setup_vosk_enables_fuzzy_matcher(
         self, mock_get, mock_vosk_model, mock_recognizer, mock_fuzzy
     ):
-        """fuzzy_threshold: 3 -> FuzzyWakeWordMatcher(threshold=3) stored on instance."""
+        """fuzzy_threshold=3 -> FuzzyWakeWordMatcher(threshold=3) stored on instance."""
         instance = self._make_instance()
-        setup_vosk(instance, {"fuzzy_threshold": 3})
+        setup_vosk(instance, fuzzy_threshold=3)
 
         mock_fuzzy.assert_called_once_with(threshold=3)
         assert instance.fuzzy_matcher == mock_fuzzy.return_value
@@ -357,7 +357,7 @@ class TestSetupVosk:
     ):
         """No fuzzy_threshold -> instance.fuzzy_matcher is None."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         assert instance.fuzzy_matcher is None
 
@@ -369,7 +369,7 @@ class TestSetupVosk:
     ):
         """Default use_grammar is True."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         assert instance.use_grammar is True
 
@@ -381,7 +381,7 @@ class TestSetupVosk:
     ):
         """use_grammar=False when provided."""
         instance = self._make_instance()
-        setup_vosk(instance, {"use_grammar": False})
+        setup_vosk(instance, use_grammar=False)
 
         assert instance.use_grammar is False
 
@@ -393,7 +393,7 @@ class TestSetupVosk:
     ):
         """Default grammar_confidence is 0.7."""
         instance = self._make_instance()
-        setup_vosk(instance, {})
+        setup_vosk(instance)
 
         assert instance.grammar_confidence == 0.7
 
@@ -405,6 +405,6 @@ class TestSetupVosk:
     ):
         """Custom grammar_confidence when provided."""
         instance = self._make_instance()
-        setup_vosk(instance, {"vosk_grammar_confidence": 0.85})
+        setup_vosk(instance, grammar_confidence=0.85)
 
         assert instance.grammar_confidence == 0.85

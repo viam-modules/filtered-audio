@@ -711,7 +711,7 @@ def test_new_fails_when_setup_vosk_fails(mock_env):
 
 
 def test_new_calls_setup_vosk_with_attrs(mock_env):
-    """Test new() calls setup_vosk with instance and attrs"""
+    """Test new() calls setup_vosk with the correct vosk_model kwarg"""
     config = Mock()
     mic = AsyncMock()
 
@@ -725,9 +725,9 @@ def test_new_calls_setup_vosk_with_attrs(mock_env):
     dependencies = {"mic1": mic}
     WakeWordFilter.new(config, dependencies)
 
-    # Verify setup_vosk was called with the instance and attrs
+    # Verify setup_vosk was called with the instance and correct vosk_model kwarg
     call_args = mock_env["setup_vosk"].call_args
-    assert call_args[0][1] == attrs
+    assert call_args[1]["vosk_model"] == "vosk-model-en-us-0.22"
 
 
 def test_new_handles_missing_microphone_in_dependencies(mock_env):
@@ -759,27 +759,27 @@ def test_check_for_wake_word_detects_wake_word_anywhere():
 
     # Wake word at start - should match
     mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # Wake word in middle - should match
     mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # Wake word at end - should match
     mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # No wake word - should not match
     mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is False
 
     # Empty text - should NOT match
     mock_rec.FinalResult.return_value = '{"text": ""}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is False
 
 
@@ -797,17 +797,17 @@ def test_check_for_wake_word_handles_multiple_wake_words():
 
     # First wake word at start
     mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # Second wake word at start
     mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # Multi-word wake word at start
     mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
 
@@ -825,12 +825,12 @@ def test_check_for_wake_word_respects_word_boundaries():
 
     # Should match: exact word
     mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
     # Should not match: wake word is part of another word
     mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is False
 
 
@@ -847,7 +847,7 @@ def test_check_for_wake_word_with_grammar_mode():
     mock_rec.FinalResult.return_value = '{"text": "robot"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
 
@@ -864,7 +864,7 @@ def test_check_for_wake_word_without_grammar_mode():
     mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is True
 
 
@@ -881,7 +881,7 @@ def test_check_for_wake_word_no_grammar_no_match():
     mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is False
 
 
@@ -897,7 +897,7 @@ def test_check_for_wake_word_handles_vosk_errors():
     mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
     assert result is False
     wake_word_filter.logger.error.assert_called_once()
 
@@ -1120,8 +1120,12 @@ async def test_get_audio_rejects_non_pcm16_codec():
 @pytest.mark.asyncio
 async def test_get_audio_rejects_invalid_sample_rate(mock_env):
     """Test get_audio raises error when microphone sample rate is not 16000 Hz"""
+    import types
     wake_word_filter = Mock()
     wake_word_filter.logger = Mock()
+    wake_word_filter._validate_mic_properties = types.MethodType(
+        WakeWordFilter._validate_mic_properties, wake_word_filter
+    )
 
     # Mock microphone with wrong sample rate
     mic = AsyncMock()
@@ -1170,8 +1174,12 @@ async def test_get_properties_always_reports_pcm16():
 @pytest.mark.asyncio
 async def test_get_audio_rejects_stereo_audio(mock_env):
     """Test get_audio raises error when microphone is stereo (2 channels)"""
+    import types
     wake_word_filter = Mock()
     wake_word_filter.logger = Mock()
+    wake_word_filter._validate_mic_properties = types.MethodType(
+        WakeWordFilter._validate_mic_properties, wake_word_filter
+    )
 
     # Mock microphone with stereo audio
     mic = AsyncMock()
@@ -1223,7 +1231,7 @@ async def test_process_speech_segment_skips_when_shutting_down():
 
     # Should yield nothing when shutting down
     chunks = []
-    async for chunk in WakeWordFilter._process_speech_segment(
+    async for chunk in WakeWordFilter._vosk_process_segment(
         wake_word_filter, chunk_buffer, byte_buffer
     ):
         chunks.append(chunk)
@@ -1253,7 +1261,7 @@ async def test_process_speech_segment_handles_executor_shutdown_error():
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
-        async for chunk in WakeWordFilter._process_speech_segment(
+        async for chunk in WakeWordFilter._vosk_process_segment(
             wake_word_filter, chunk_buffer, byte_buffer
         ):
             chunks.append(chunk)
@@ -1289,7 +1297,7 @@ async def test_process_speech_segment_yields_chunks_on_wake_word():
             mock_audio_chunk_class.return_value = empty_chunk
 
             chunks = []
-            async for chunk in WakeWordFilter._process_speech_segment(
+            async for chunk in WakeWordFilter._vosk_process_segment(
                 wake_word_filter, chunk_buffer, byte_buffer
             ):
                 chunks.append(chunk)
@@ -1327,7 +1335,7 @@ async def test_process_speech_segment_yields_empty_chunk_at_end():
             mock_audio_chunk_class.return_value = empty_chunk
 
             chunks = []
-            async for chunk in WakeWordFilter._process_speech_segment(
+            async for chunk in WakeWordFilter._vosk_process_segment(
                 wake_word_filter, chunk_buffer, byte_buffer
             ):
                 chunks.append(chunk)
@@ -1357,7 +1365,7 @@ async def test_process_speech_segment_yields_nothing_when_no_wake_word():
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
-        async for chunk in WakeWordFilter._process_speech_segment(
+        async for chunk in WakeWordFilter._vosk_process_segment(
             wake_word_filter, chunk_buffer, byte_buffer
         ):
             chunks.append(chunk)
@@ -1445,6 +1453,10 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf.min_speech_duration_ms = 300
     wf.logger = Mock()
     wf.microphone_client = AsyncMock()
+    # Bind real methods so async-generator calls work correctly
+    import types
+    wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
+    wf._validate_mic_properties = types.MethodType(WakeWordFilter._validate_mic_properties, wf)
     return wf
 
 

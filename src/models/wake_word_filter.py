@@ -27,18 +27,18 @@ from viam.resource.types import Model, ModelFamily
 from viam.utils import struct_to_dict
 from viam.streams import StreamWithIterator
 
+from .fuzzy_matcher import FuzzyWakeWordMatcher
 from .oww import setup_oww
-from .vosk import setup_vosk
+from .vosk import setup_vosk, AUDIO_SAMPLE_RATE_HZ, DEFAULT_VOSK_MODEL, DEFAULT_GRAMMAR_CONFIDENCE
+from vosk import Model as VoskModel, KaldiRecognizer
 
 # Default configuration values
 DEFAULT_VAD_AGGRESSIVENESS = 3  # 0-3, higher = less sensitive
-AUDIO_SAMPLE_RATE_HZ = 16000
 MAX_BUFFER_SIZE_BYTES = 480000  # ~15 seconds at 16kHz
 DEFAULT_SILENCE_DURATION_MS = (
     900  # milliseconds of silence before ending a speech segment
 )
 DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
-DEFAULT_GRAMMAR_CONFIDENCE = 0.7  # min confidence for Vosk grammar matches (0.0-1.0)
 
 
 class WakeWordFilter(AudioIn, EasyResource):
@@ -50,12 +50,12 @@ class WakeWordFilter(AudioIn, EasyResource):
     logger: logging.Logger
     wake_words: List[str]
     vad: webrtcvad.Vad
-    vosk_model: Any
-    recognizer: Any
+    vosk_model: VoskModel
+    recognizer: KaldiRecognizer
     executor: ThreadPoolExecutor
     is_shutting_down: bool
     microphone_client: AudioIn
-    fuzzy_matcher: Optional[Any]
+    fuzzy_matcher: Optional[FuzzyWakeWordMatcher]
     silence_duration_ms: int
     min_speech_duration_ms: int
     detection_running: bool
@@ -128,9 +128,19 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.oww_threshold = 0.5
 
         if instance.detection_engine == "openwakeword":
-            setup_oww(instance, attrs)
+            setup_oww(
+                instance,
+                oww_model_path=str(attrs.get("oww_model_path", "")),
+                oww_threshold=float(attrs.get("oww_threshold", 0.5)),
+            )
         else:
-            setup_vosk(instance, attrs)
+            setup_vosk(
+                instance,
+                vosk_model=str(attrs.get("vosk_model", DEFAULT_VOSK_MODEL)),
+                use_grammar=bool(attrs.get("use_grammar", True)),
+                grammar_confidence=float(attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)),
+                fuzzy_threshold=int(attrs["fuzzy_threshold"]) if attrs.get("fuzzy_threshold") is not None else None,
+            )
 
         # Create thread pool for processing (non-blocking)
         instance.executor = ThreadPoolExecutor(
@@ -265,15 +275,20 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return deps, []
 
-    async def _process_speech_segment(
+    async def _vosk_process_segment(
         self, speech_chunk_buffer: List[AudioChunk], speech_buffer: bytearray
     ) -> AsyncGenerator[AudioChunk, None]:
         """
-        Check buffered audio for wake words and yield chunks if detected.
+        Vosk: run wake word inference on the full buffered speech segment.
+
+        Unlike OWW (which processes each frame in real-time), Vosk runs once
+        on the complete segment after VAD detects end-of-speech. A future
+        optimization could feed frames incrementally via AcceptWaveform() for
+        lower latency.
 
         Args:
-            speech_chunk_buffer: List of audio cqhunks to yield if wake word found
-            speech_buffer: Accumulated speech audio bytes to process with Vosk
+            speech_chunk_buffer: chunks to yield if wake word detected
+            speech_buffer: accumulated raw PCM for the full speech segment
         """
         if not speech_chunk_buffer:
             return
@@ -286,7 +301,7 @@ class WakeWordFilter(AudioIn, EasyResource):
         try:
             wake_word_detected = await asyncio.get_running_loop().run_in_executor(
                 self.executor,
-                self._check_for_wake_word,
+                self._vosk_check_for_wake_word,
                 bytes(speech_buffer),
             )
 
@@ -307,13 +322,72 @@ class WakeWordFilter(AudioIn, EasyResource):
                 return
             raise
 
+    def _validate_mic_properties(self, mic_props: Any) -> None:
+        """Raise ValueError if mic sample rate or channel count is incompatible."""
+        if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
+            raise ValueError(
+                f"Wake word filter requires 16000 Hz audio, "
+                f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
+                f"Please configure source microphone to output 16000 Hz PCM16 audio."
+            )
+        if mic_props.num_channels != 1:
+            raise ValueError(
+                f"Wake word filter requires mono (1 channel) audio, "
+                f"but source microphone provides {mic_props.num_channels} channels. "
+                f"Please configure source microphone for mono audio."
+            )
+
+    async def _finalize_segment(
+        self,
+        speech_chunk_buffer: List[AudioChunk],
+        speech_buffer: bytearray,
+        oww_detected: bool,
+    ) -> AsyncGenerator[AudioChunk, None]:
+        """
+        Finalize a completed speech segment for the active detection engine.
+
+        OWW: detection already happened per-frame, so just check the result
+        and yield buffered chunks if the wake word was detected, then reset
+        the OWW model state for the next segment.
+
+        Vosk: detection hasn't run yet — run inference on the full buffered
+        segment now, then yield chunks if the wake word was found.
+        """
+        if self.detection_engine == "openwakeword":
+            if oww_detected:
+                self.logger.info(
+                    "OWW: Yielding %d chunks (%d bytes)",
+                    len(speech_chunk_buffer),
+                    len(speech_buffer),
+                )
+                for chunk in speech_chunk_buffer:
+                    yield chunk
+                empty_response = AudioChunk()
+                empty_response.audio.audio_data = b""
+                yield empty_response
+            else:
+                buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
+                max_score = max(buf) if buf else 0.0
+                self.logger.debug(
+                    "OWW: No detection (max_score=%.3f, threshold=%.2f)",
+                    max_score,
+                    self.oww_threshold,
+                )
+            self.oww_model.reset()
+        else:
+            # Vosk: run inference on the complete buffered segment
+            async for chunk in self._vosk_process_segment(
+                speech_chunk_buffer, speech_buffer
+            ):
+                yield chunk
+
     async def get_audio(
         self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs
     ) -> StreamWithIterator:
         """
         Stream audio, yielding buffered audio chunks when a wake word detected.
 
-        Uses WebRTC VAD to detect speech, then Vosk to find wake words.
+        Uses WebRTC VAD to detect speech, then Vosk or OWW to detect wake words
 
         Args:
             codec: Audio codec (should be "pcm16")
@@ -343,21 +417,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 f"Microphone properties - Sample rate: {mic_props.sample_rate_hz} Hz, Channels: {mic_props.num_channels}"
             )
 
-            # Validate sample rate (Vosk models are trained on 16000 Hz)
-            if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
-                raise ValueError(
-                    f"Wake word filter requires 16000 Hz audio, "
-                    f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
-                    f"Please configure source microphone to output 16000 Hz PCM16 audio."
-                )
-
-            # Validate mono audio (Vosk requires single channel)
-            if mic_props.num_channels != 1:
-                raise ValueError(
-                    f"Wake word filter requires mono (1 channel) audio, "
-                    f"but source microphone provides {mic_props.num_channels} channels. "
-                    f"Please configure source microphone for mono audio."
-                )
+            self._validate_mic_properties(mic_props)
 
             mic_stream = await self.microphone_client.get_audio(
                 codec, duration_seconds, previous_timestamp_ns
@@ -366,29 +426,24 @@ class WakeWordFilter(AudioIn, EasyResource):
                 f"Microphone stream started (requested duration: {duration_seconds}s)"
             )
 
-            speech_chunk_buffer: list[
-                AudioChunk
-            ] = []  # Audio chunks that contain speech
-            speech_buffer = (
-                bytearray()
-            )  # Accumulates speech frames (raw audio bytes) for Vosk
-            audio_buffer = (
-                bytearray()
-            )  # Working buffer for breaking chunks into VAD frames
-
+            # --- Shared buffers (used by both engines) ---
+            speech_chunk_buffer: list[AudioChunk] = []  # chunks to yield on detection
+            speech_buffer = bytearray()   # raw PCM accumulated during speech segment
+            audio_buffer = bytearray()    # working buffer for slicing into VAD frames
             is_speech_active = False
             silence_frames = 0
-            speech_frames = 0  # Track how much speech we've heard
+            speech_frames = 0
             frame_duration_ms = 30
             max_silence_frames = self.silence_duration_ms // frame_duration_ms
             min_speech_frames = self.min_speech_duration_ms // frame_duration_ms
 
-            oww_detected = False  # Track if OWW detected wake word during segment
-            # For the best efficiency and latency, audio frames should be multiples of 80 ms, with longer frames
-            # increasing overall efficiency at the cost of detection latency
-            # 16khz * .080 sec = 1280 samples
+            # --- OWW-only state ---
+            # Frames should be multiples of 80ms, higher frame size
+            # = better efficiency but longer latency
+            # 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
+            oww_detected = False
             oww_audio_buffer = bytearray()
-            OWW_CHUNK_SIZE = 2560  # 1280 samples * 2 bytes per int16 (80ms)
+            OWW_CHUNK_SIZE = 2560
 
             def reset_buffers():
                 """Clear all buffers and reset speech state."""
@@ -402,12 +457,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                 speech_frames = 0
                 oww_detected = False
 
-            def detect_wake_word(frame):
-                """Feed audio frame to OWW and check for wake word detection."""
-                nonlocal oww_detected
-                if oww_detected or self.detection_engine != "openwakeword":
-                    return
-                oww_audio_buffer.extend(frame)
+            def oww_run_inference() -> bool:
+                """Drain oww_audio_buffer in chunks and run OWW inference on each."""
                 while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
                     oww_chunk = bytes(oww_audio_buffer[:OWW_CHUNK_SIZE])
                     del oww_audio_buffer[:OWW_CHUNK_SIZE]
@@ -416,11 +467,22 @@ class WakeWordFilter(AudioIn, EasyResource):
                     score = prediction.get(self.oww_model_name, 0.0)
                     if score >= self.oww_threshold:
                         self.logger.info(
-                            f"Wake word detected "
-                            f"(score={score:.3f} >= {self.oww_threshold})"
+                            "Wake word detected (score=%.3f >= %.3f)",
+                            score,
+                            self.oww_threshold,
                         )
-                        oww_detected = True
-                        break
+                        return True
+                return False
+
+            def oww_process_frame(frame):
+                """Feed audio frame into OWW buffer and run inference."""
+                nonlocal oww_detected
+                # wake word already detected earlier in this segment
+                if oww_detected:
+                    return
+                oww_audio_buffer.extend(frame)
+                if oww_run_inference():
+                    oww_detected = True
 
             async for audio_chunk in mic_stream:
                 # Exit stream if shutting down
@@ -477,14 +539,16 @@ class WakeWordFilter(AudioIn, EasyResource):
                             should_process = True
                             break
 
-                        # Buffer this speech frame
+                        # Buffer frame (both engines accumulate speech here;
+                        # Vosk runs inference on the full segment at end-of-speech)
                         if not chunk_added:
                             speech_chunk_buffer.append(audio_chunk)
                             chunk_added = True
                         speech_buffer.extend(frame)
 
-                        # Feed audio to OWW for wake word detection
-                        detect_wake_word(frame)
+                        # OWW: feed each frame for real-time per-frame detection
+                        if self.detection_engine == "openwakeword":
+                            oww_process_frame(frame)
                     else:
                         if is_speech_active:
                             # Check buffer limit before adding frame
@@ -498,8 +562,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                                 chunk_added = True
                             speech_buffer.extend(frame)
 
-                            # Feed silence frames to OWW too — it needs continuous audio
-                            detect_wake_word(frame)
+                            # OWW: feed silence frames too — needs continuous audio
+                            if self.detection_engine == "openwakeword":
+                                oww_process_frame(frame)
 
                             silence_frames += 1
 
@@ -515,44 +580,16 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                 # If speech segment ended or buffer limit reached, check for wake word
                 if should_process:
-                    # Only process if we had enough speech (filters out brief false positives)
                     if speech_frames >= min_speech_frames:
                         self.logger.debug(
                             "Speech segment ended (%d frames, %d bytes)",
                             speech_frames,
                             len(speech_buffer),
                         )
-                        if self.detection_engine == "openwakeword":
-                            if oww_detected:
-                                self.logger.info(
-                                    f"OWW: Yielding {len(speech_chunk_buffer)} chunks "
-                                    f"({len(speech_buffer)} bytes)"
-                                )
-                                for chunk in speech_chunk_buffer:
-                                    yield chunk
-                                empty_response = AudioChunk()
-                                empty_response.audio.audio_data = b""
-                                yield empty_response
-                            else:
-                                # Log the max score for debugging missed detections
-                                max_score = 0.0
-                                buf = self.oww_model.prediction_buffer.get(
-                                    self.oww_model_name
-                                )
-                                if buf:
-                                    max_score = max(buf)
-                                self.logger.debug(
-                                    "OWW: No detection (max_score=%.3f, threshold=%.2f)",
-                                    max_score,
-                                    self.oww_threshold,
-                                )
-                            # Reset OWW model state for next segment
-                            self.oww_model.reset()
-                        else:
-                            async for chunk in self._process_speech_segment(
-                                speech_chunk_buffer, speech_buffer
-                            ):
-                                yield chunk
+                        async for chunk in self._finalize_segment(
+                            speech_chunk_buffer, speech_buffer, oww_detected
+                        ):
+                            yield chunk
                     else:
                         self.logger.debug(
                             "Ignoring false positive: only %d frames", speech_frames
@@ -565,50 +602,32 @@ class WakeWordFilter(AudioIn, EasyResource):
                 # Secondary check (shouldn't be needed but safety)
                 if len(speech_buffer) >= MAX_BUFFER_SIZE_BYTES:
                     self.logger.debug("Processing speech segment")
-                    if self.detection_engine == "openwakeword":
-                        if oww_detected:
-                            for chunk in speech_chunk_buffer:
-                                yield chunk
-                            empty_response = AudioChunk()
-                            empty_response.audio.audio_data = b""
-                            yield empty_response
-                        self.oww_model.reset()
-                    else:
-                        async for chunk in self._process_speech_segment(
-                            speech_chunk_buffer, speech_buffer
-                        ):
-                            yield chunk
-
+                    async for chunk in self._finalize_segment(
+                        speech_chunk_buffer, speech_buffer, oww_detected
+                    ):
+                        yield chunk
                     reset_buffers()
 
             # Process any remaining buffered audio when stream ends
             if speech_chunk_buffer and speech_frames >= min_speech_frames:
                 self.logger.debug(
-                    f"Stream ended with {len(speech_buffer)} bytes buffered, processing"
+                    "Stream ended with %d bytes buffered, processing", len(speech_buffer)
                 )
-                if self.detection_engine == "openwakeword":
-                    if oww_detected:
-                        for chunk in speech_chunk_buffer:
-                            yield chunk
-                        empty_response = AudioChunk()
-                        empty_response.audio.audio_data = b""
-                        yield empty_response
-                    self.oww_model.reset()
-                else:
-                    async for chunk in self._process_speech_segment(
-                        speech_chunk_buffer, speech_buffer
-                    ):
-                        yield chunk
+                async for chunk in self._finalize_segment(
+                    speech_chunk_buffer, speech_buffer, oww_detected
+                ):
+                    yield chunk
             elif speech_chunk_buffer:
                 self.logger.debug(
-                    f"Stream ended: ignoring buffered audio (only {speech_frames} frames, likely false positive)"
+                    "Stream ended: ignoring buffered audio (only %d frames, likely false positive)",
+                    speech_frames,
                 )
                 if self.detection_engine == "openwakeword":
                     self.oww_model.reset()
 
         return StreamWithIterator(audio_generator())
 
-    def _check_for_wake_word(self, audio_bytes: bytes) -> bool:
+    def _vosk_check_for_wake_word(self, audio_bytes: bytes) -> bool:
         """
         Check if any wake word is in audio.
 

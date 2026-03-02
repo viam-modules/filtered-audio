@@ -43,7 +43,7 @@ class TestSetupOww:
                 "openwakeword.utils": mock_oww.utils,
             },
         ):
-            setup_oww(instance, {"oww_model_path": "/tmp/my_wakeword.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5)
 
         assert instance.oww_model == mock_oww_model_cls.return_value
         mock_oww_model_cls.assert_called_once()
@@ -68,14 +68,14 @@ class TestSetupOww:
                 "openwakeword.utils": mock_oww.utils,
             },
         ):
-            setup_oww(instance, {"oww_model_path": "/tmp/my_wakeword.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5)
 
         assert instance.oww_model_name == "my_wakeword"
 
     @patch("src.models.oww.os.path.exists", return_value=True)
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_default_threshold(self, mock_makedirs, mock_exists):
-        """No oww_threshold in attrs -> default 0.5."""
+        """oww_threshold=0.5 (the default) -> instance.oww_threshold == 0.5."""
         from src.models.oww import setup_oww
 
         instance = self._make_instance()
@@ -89,14 +89,14 @@ class TestSetupOww:
                 "openwakeword.utils": mock_oww.utils,
             },
         ):
-            setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
         assert instance.oww_threshold == 0.5
 
     @patch("src.models.oww.os.path.exists", return_value=True)
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_custom_threshold(self, mock_makedirs, mock_exists):
-        """oww_threshold: 0.8 -> instance.oww_threshold == 0.8."""
+        """oww_threshold=0.8 -> instance.oww_threshold == 0.8."""
         from src.models.oww import setup_oww
 
         instance = self._make_instance()
@@ -112,10 +112,8 @@ class TestSetupOww:
         ):
             setup_oww(
                 instance,
-                {
-                    "oww_model_path": "/tmp/model.onnx",
-                    "oww_threshold": 0.8,
-                },
+                oww_model_path="/tmp/model.onnx",
+                oww_threshold=0.8,
             )
 
         assert instance.oww_threshold == 0.8
@@ -152,12 +150,12 @@ class TestSetupOww:
             ),
             patch("src.models.oww.os.path.exists", side_effect=exists_side_effect),
             patch("src.models.oww.os.getenv", return_value="/tmp/cache"),
+            patch("src.models.oww.urllib.request.urlopen"),
         ):
             setup_oww(
                 instance,
-                {
-                    "oww_model_path": "https://example.com/my_model.onnx",
-                },
+                oww_model_path="https://example.com/my_model.onnx",
+                oww_threshold=0.5,
             )
 
         mock_download.assert_called_once_with(
@@ -189,9 +187,8 @@ class TestSetupOww:
         ):
             setup_oww(
                 instance,
-                {
-                    "oww_model_path": "https://example.com/my_model.onnx",
-                },
+                oww_model_path="https://example.com/my_model.onnx",
+                oww_threshold=0.5,
             )
 
         mock_download.assert_not_called()
@@ -216,7 +213,7 @@ class TestSetupOww:
             ),
             pytest.raises(ValueError, match="oww_model_path does not exist"),
         ):
-            setup_oww(instance, {"oww_model_path": "/nonexistent/model.onnx"})
+            setup_oww(instance, oww_model_path="/nonexistent/model.onnx", oww_threshold=0.5)
 
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_downloads_preprocessing_models(self, mock_makedirs):
@@ -243,7 +240,7 @@ class TestSetupOww:
             ),
             patch("src.models.oww.os.path.exists", side_effect=exists_side_effect),
         ):
-            setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
         assert mock_oww.utils.download_file.call_count == 2  # one per model
 
@@ -266,7 +263,7 @@ class TestSetupOww:
             ),
             patch("src.models.oww.os.path.exists", return_value=True),
         ):
-            setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
         mock_oww.utils.download_file.assert_not_called()
 
@@ -292,7 +289,7 @@ class TestSetupOww:
             patch("src.models.oww.sys") as mock_sys,
         ):
             mock_sys.platform = "linux"
-            setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
             call_kwargs = mock_oww_model_cls.call_args[1]
             assert call_kwargs["enable_speex_noise_suppression"] is True
@@ -311,7 +308,7 @@ class TestSetupOww:
             patch("src.models.oww.sys") as mock_sys,
         ):
             mock_sys.platform = "darwin"
-            setup_oww(instance, {"oww_model_path": "/tmp/model.onnx"})
+            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
             call_kwargs = mock_oww_model_cls.call_args[1]
             assert call_kwargs["enable_speex_noise_suppression"] is False
