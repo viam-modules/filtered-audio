@@ -1,7 +1,6 @@
 """Vosk model utilities."""
 
 import json
-import logging
 import os
 import sys
 import tempfile
@@ -194,7 +193,7 @@ def setup_vosk(
         f"Vosk grammar confidence threshold: {instance.grammar_confidence:.2f}"
     )
 
-    # Create recognizer 
+    # Create recognizer
     if instance.use_grammar and instance.wake_words:
         grammar = json.dumps(instance.wake_words)
         instance.recognizer = KaldiRecognizer(

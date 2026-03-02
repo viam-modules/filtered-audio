@@ -5,7 +5,7 @@ import urllib.request
 import certifi
 
 
-def download_file(url:str, dest_path:str, logger=None) -> str:
+def download_file(url: str, dest_path: str, logger=None) -> str:
     """
     Download a file from a URL with SSL verification and cleanup on failure.
 

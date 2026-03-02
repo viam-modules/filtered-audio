@@ -43,7 +43,9 @@ class TestSetupOww:
                 "openwakeword.utils": mock_oww.utils,
             },
         ):
-            setup_oww(instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5)
+            setup_oww(
+                instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5
+            )
 
         assert instance.oww_model == mock_oww_model_cls.return_value
         mock_oww_model_cls.assert_called_once()
@@ -68,7 +70,9 @@ class TestSetupOww:
                 "openwakeword.utils": mock_oww.utils,
             },
         ):
-            setup_oww(instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5)
+            setup_oww(
+                instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5
+            )
 
         assert instance.oww_model_name == "my_wakeword"
 
@@ -213,7 +217,9 @@ class TestSetupOww:
             ),
             pytest.raises(ValueError, match="oww_model_path does not exist"),
         ):
-            setup_oww(instance, oww_model_path="/nonexistent/model.onnx", oww_threshold=0.5)
+            setup_oww(
+                instance, oww_model_path="/nonexistent/model.onnx", oww_threshold=0.5
+            )
 
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_downloads_preprocessing_models(self, mock_makedirs):

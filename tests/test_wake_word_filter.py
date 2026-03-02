@@ -1121,6 +1121,7 @@ async def test_get_audio_rejects_non_pcm16_codec():
 async def test_get_audio_rejects_invalid_sample_rate(mock_env):
     """Test get_audio raises error when microphone sample rate is not 16000 Hz"""
     import types
+
     wake_word_filter = Mock()
     wake_word_filter.logger = Mock()
     wake_word_filter._validate_mic_properties = types.MethodType(
@@ -1175,6 +1176,7 @@ async def test_get_properties_always_reports_pcm16():
 async def test_get_audio_rejects_stereo_audio(mock_env):
     """Test get_audio raises error when microphone is stereo (2 channels)"""
     import types
+
     wake_word_filter = Mock()
     wake_word_filter.logger = Mock()
     wake_word_filter._validate_mic_properties = types.MethodType(
@@ -1455,8 +1457,11 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf.microphone_client = AsyncMock()
     # Bind real methods so async-generator calls work correctly
     import types
+
     wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
-    wf._validate_mic_properties = types.MethodType(WakeWordFilter._validate_mic_properties, wf)
+    wf._validate_mic_properties = types.MethodType(
+        WakeWordFilter._validate_mic_properties, wf
+    )
     return wf
 
 

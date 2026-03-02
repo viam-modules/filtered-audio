@@ -87,7 +87,9 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
     instance.oww_model = OWWModel(
         wakeword_models=[oww_model_path],
         inference_framework="onnx",
-        enable_speex_noise_suppression=(sys.platform == "linux"), #not supported on mac
+        enable_speex_noise_suppression=(
+            sys.platform == "linux"
+        ),  # not supported on mac
     )
     instance.logger.debug("OWW model loaded")
 

@@ -29,7 +29,12 @@ from viam.streams import StreamWithIterator
 
 from .fuzzy_matcher import FuzzyWakeWordMatcher
 from .oww import setup_oww
-from .vosk import setup_vosk, AUDIO_SAMPLE_RATE_HZ, DEFAULT_VOSK_MODEL, DEFAULT_GRAMMAR_CONFIDENCE
+from .vosk import (
+    setup_vosk,
+    AUDIO_SAMPLE_RATE_HZ,
+    DEFAULT_VOSK_MODEL,
+    DEFAULT_GRAMMAR_CONFIDENCE,
+)
 from vosk import Model as VoskModel, KaldiRecognizer
 
 # Default configuration values
@@ -138,8 +143,12 @@ class WakeWordFilter(AudioIn, EasyResource):
                 instance,
                 vosk_model=str(attrs.get("vosk_model", DEFAULT_VOSK_MODEL)),
                 use_grammar=bool(attrs.get("use_grammar", True)),
-                grammar_confidence=float(attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)),
-                fuzzy_threshold=int(attrs["fuzzy_threshold"]) if attrs.get("fuzzy_threshold") is not None else None,
+                grammar_confidence=float(
+                    attrs.get("vosk_grammar_confidence", DEFAULT_GRAMMAR_CONFIDENCE)
+                ),
+                fuzzy_threshold=int(attrs["fuzzy_threshold"])
+                if attrs.get("fuzzy_threshold") is not None
+                else None,
             )
 
         # Create thread pool for processing (non-blocking)
@@ -428,8 +437,8 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             # --- Shared buffers (used by both engines) ---
             speech_chunk_buffer: list[AudioChunk] = []  # chunks to yield on detection
-            speech_buffer = bytearray()   # raw PCM accumulated during speech segment
-            audio_buffer = bytearray()    # working buffer for slicing into VAD frames
+            speech_buffer = bytearray()  # raw PCM accumulated during speech segment
+            audio_buffer = bytearray()  # working buffer for slicing into VAD frames
             is_speech_active = False
             silence_frames = 0
             speech_frames = 0
@@ -611,7 +620,8 @@ class WakeWordFilter(AudioIn, EasyResource):
             # Process any remaining buffered audio when stream ends
             if speech_chunk_buffer and speech_frames >= min_speech_frames:
                 self.logger.debug(
-                    "Stream ended with %d bytes buffered, processing", len(speech_buffer)
+                    "Stream ended with %d bytes buffered, processing",
+                    len(speech_buffer),
                 )
                 async for chunk in self._finalize_segment(
                     speech_chunk_buffer, speech_buffer, oww_detected
