@@ -82,6 +82,12 @@ The source microphone **must** provide audio in the following format:
 
 **Recommended Source Microphone:** Use the [`viam:system-audio`](https://app.viam.com/module/viam/system-audio) module, which supports resampling and can output 16 kHz mono PCM16 audio from any system microphone.
 
+### Training a Custom OpenWakeWord Model
+
+To use `detection_engine: openwakeword` you need a custom `.onnx` model trained on your wake word. Use the [openWakeWord automatic training notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb) to generate one.
+
+Once trained, set `oww_model_path` to the local path or a URL pointing to the `.onnx` file.
+
 ### Fuzzy Wake Word Matching
 
 The wake word filter supports fuzzy matching using Levenshtein distance (edit distance) via the [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz) library. This improves accuracy when speech recognition produces slight variations (e.g., "hey robot" transcribed as "the robot").
