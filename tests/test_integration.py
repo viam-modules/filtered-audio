@@ -191,7 +191,7 @@ class TestGetAudioIntegration:
 
         mock_microphone.get_audio.return_value = silence_stream()
 
-        with patch.object(wake_word_filter, "_vosk_check_for_wake_word") as mock_vosk:
+        with patch("src.models.vosk.vosk_check_for_wake_word") as mock_vosk:
             stream = await wake_word_filter.get_audio("pcm16", 0, 0)
             async for _ in stream:
                 pass

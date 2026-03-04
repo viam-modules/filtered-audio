@@ -1,14 +1,17 @@
 """Vosk model utilities."""
 
+import asyncio
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 import zipfile
 
 from vosk import Model as VoskModel, KaldiRecognizer
+from viam.components.audio_in import AudioResponse as AudioChunk
 
 from .download import download_file
 from .fuzzy_matcher import FuzzyWakeWordMatcher
@@ -211,3 +214,97 @@ def setup_vosk(
         instance.logger.info(f"Fuzzy matching enabled with threshold={fuzzy_threshold}")
     else:
         instance.fuzzy_matcher = None
+
+
+def vosk_check_for_wake_word(instance: Any, audio_bytes: bytes) -> bool:
+    """Check if any wake word is present in the audio using Vosk."""
+    try:
+        instance.recognizer.AcceptWaveform(audio_bytes)
+        result = json.loads(instance.recognizer.FinalResult())
+        text = result.get("text", "").lower()
+
+        instance.logger.debug("Vosk result: %s", result)
+        if "result" in result and result["result"]:
+            avg_conf = sum(w.get("conf", 1.0) for w in result["result"])
+            avg_conf /= len(result["result"])
+            instance.logger.debug("Vosk confidence: %.2f", avg_conf)
+            if avg_conf < instance.grammar_confidence:
+                instance.logger.debug(
+                    "Rejecting low confidence: '%s' (conf=%.2f < %.2f)",
+                    text,
+                    avg_conf,
+                    instance.grammar_confidence,
+                )
+                return False
+
+        if text:
+            instance.logger.debug(f"Recognized: '{text}'")
+        else:
+            instance.logger.debug("Vosk returned empty text, no speech recognized")
+            return False
+
+        for wake_word in instance.wake_words:
+            if instance.fuzzy_matcher and not instance.use_grammar:
+                match_details = instance.fuzzy_matcher.match(text, wake_word)
+                if match_details:
+                    instance.logger.info(
+                        f"Wake word '{wake_word}' detected (fuzzy: "
+                        f"'{match_details['matched_text']}', "
+                        f"distance={match_details['distance']})"
+                    )
+                    return True
+            else:
+                pattern = rf"\b{re.escape(wake_word)}\b"
+                match = re.search(pattern, text)
+                instance.logger.debug(
+                    "Checking wake_word='%s' pattern='%s' against text='%s' -> %s",
+                    wake_word,
+                    pattern,
+                    text,
+                    match,
+                )
+                if match:
+                    instance.logger.info("Wake word '%s' detected", wake_word)
+                    return True
+
+        instance.logger.debug("No wake word match found")
+        return False
+    except Exception as e:
+        instance.logger.error(f"Vosk error: {e}", exc_info=True)
+        return False
+
+
+async def vosk_process_segment(
+    instance: Any, speech_chunk_buffer: list, speech_buffer: bytearray
+) -> AsyncGenerator:
+    """Run Vosk wake word inference on a complete buffered speech segment."""
+    if not speech_chunk_buffer:
+        return
+
+    if instance.is_shutting_down:
+        instance.logger.debug("Skipping speech processing due to shutdown")
+        return
+
+    try:
+        wake_word_detected = await asyncio.get_running_loop().run_in_executor(
+            instance.executor,
+            vosk_check_for_wake_word,
+            instance,
+            bytes(speech_buffer),
+        )
+
+        if wake_word_detected:
+            instance.logger.info(
+                f"Wake word detected! Yielding {len(speech_chunk_buffer)} chunks ({len(speech_buffer)} bytes)"
+            )
+            for chunk in speech_chunk_buffer:
+                yield chunk
+            empty_response = AudioChunk()
+            empty_response.audio.audio_data = b""
+            yield empty_response
+            instance.logger.debug("Sent empty chunk to signal segment end")
+    except RuntimeError as e:
+        if "shutdown" in str(e).lower():
+            instance.logger.debug("Executor shutdown during processing, ignoring")
+            return
+        raise

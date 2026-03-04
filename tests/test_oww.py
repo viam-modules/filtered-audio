@@ -1,5 +1,9 @@
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+import numpy as np
+
+from src.models._speech_segment import _SpeechSegment
+from src.models.oww import oww_run_inference, oww_process_vad_frame, OWW_CHUNK_SIZE
 
 
 class TestSetupOww:
@@ -318,3 +322,189 @@ class TestSetupOww:
 
             call_kwargs = mock_oww_model_cls.call_args[1]
             assert call_kwargs["enable_speex_noise_suppression"] is False
+
+
+class TestOwwRunInference:
+    """Tests for oww_run_inference()"""
+
+    def _make_instance(self, threshold=0.5, model_name="okay_gambit"):
+        instance = Mock()
+        instance.logger = Mock()
+        instance.oww_threshold = threshold
+        instance.oww_model_name = model_name
+        return instance
+
+    def _make_segment(self, audio_bytes=b""):
+        seg = _SpeechSegment()
+        seg.oww_audio_buffer.extend(audio_bytes)
+        return seg
+
+    def test_returns_false_when_buffer_too_small(self):
+        """Buffer smaller than OWW_CHUNK_SIZE -> returns False, no inference."""
+        instance = self._make_instance()
+        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE - 1))
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is False
+        instance.oww_model.predict.assert_not_called()
+
+    def test_returns_false_when_buffer_empty(self):
+        """Empty buffer -> returns False immediately."""
+        instance = self._make_instance()
+        seg = self._make_segment()
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is False
+        instance.oww_model.predict.assert_not_called()
+
+    def test_returns_true_when_score_above_threshold(self):
+        """Score >= threshold -> returns True."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is True
+
+    def test_returns_false_when_score_below_threshold(self):
+        """Score < threshold -> returns False."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is False
+
+    def test_returns_false_when_model_name_not_in_prediction(self):
+        """Model name missing from prediction dict -> score defaults to 0.0."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"other_model": 0.9}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is False
+
+    def test_score_exactly_at_threshold_triggers_detection(self):
+        """Score == threshold -> returns True."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.5}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is True
+
+    def test_drains_buffer_in_chunks(self):
+        """Buffer with 2x OWW_CHUNK_SIZE -> predict called twice."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE * 2))
+
+        oww_run_inference(instance, seg)
+
+        assert instance.oww_model.predict.call_count == 2
+
+    def test_consumed_bytes_removed_from_buffer(self):
+        """Processed bytes are deleted from oww_audio_buffer."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE + b"\x01" * 100)
+
+        oww_run_inference(instance, seg)
+
+        assert len(seg.oww_audio_buffer) == 100
+
+    def test_stops_early_on_detection(self):
+        """Returns True on first detection without draining remaining buffer."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
+        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE * 3))
+
+        result = oww_run_inference(instance, seg)
+
+        assert result is True
+        assert instance.oww_model.predict.call_count == 1
+
+    def test_passes_int16_array_to_predict(self):
+        """Audio bytes are converted to int16 numpy array before predict()."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+
+        oww_run_inference(instance, seg)
+
+        call_args = instance.oww_model.predict.call_args[0]
+        audio_array = call_args[0]
+        assert isinstance(audio_array, np.ndarray)
+        assert audio_array.dtype == np.int16
+        assert len(audio_array) == OWW_CHUNK_SIZE // 2
+
+
+class TestOwwProcessVadFrame:
+    """Tests for oww_process_vad_frame()"""
+
+    def _make_instance(self, threshold=0.5, model_name="okay_gambit"):
+        instance = Mock()
+        instance.logger = Mock()
+        instance.oww_threshold = threshold
+        instance.oww_model_name = model_name
+        return instance
+
+    def test_skips_when_already_detected(self):
+        """oww_detected=True -> frame not added to buffer, no inference."""
+        instance = self._make_instance()
+        seg = _SpeechSegment()
+        seg.oww_detected = True
+
+        oww_process_vad_frame(instance, seg, b"\x00" * 100)
+
+        assert len(seg.oww_audio_buffer) == 0
+        instance.oww_model.predict.assert_not_called()
+
+    def test_appends_frame_to_buffer(self):
+        """Frame is added to oww_audio_buffer."""
+        instance = self._make_instance()
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = _SpeechSegment()
+
+        frame = b"\x01" * 100
+        oww_process_vad_frame(instance, seg, frame)
+
+        assert seg.oww_audio_buffer[:100] == bytearray(frame)
+
+    def test_sets_oww_detected_on_detection(self):
+        """When inference returns True, oww_detected is set to True."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
+        seg = _SpeechSegment()
+        seg.oww_audio_buffer.extend(b"\x00" * OWW_CHUNK_SIZE)
+
+        oww_process_vad_frame(instance, seg, b"\x00" * 100)
+
+        assert seg.oww_detected is True
+
+    def test_does_not_set_detected_below_threshold(self):
+        """Score below threshold -> oww_detected stays False."""
+        instance = self._make_instance(threshold=0.5)
+        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
+        seg = _SpeechSegment()
+        seg.oww_audio_buffer.extend(b"\x00" * OWW_CHUNK_SIZE)
+
+        oww_process_vad_frame(instance, seg, b"\x00" * 100)
+
+        assert seg.oww_detected is False
+
+    def test_no_inference_when_buffer_below_chunk_size(self):
+        """Frame added but buffer not large enough -> predict not called."""
+        instance = self._make_instance()
+        seg = _SpeechSegment()
+
+        oww_process_vad_frame(instance, seg, b"\x00" * 100)
+
+        instance.oww_model.predict.assert_not_called()
+        assert seg.oww_detected is False

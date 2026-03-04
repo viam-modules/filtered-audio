@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from src.models.wake_word_filter import WakeWordFilter
+from src.models.wake_word_filter import WakeWordFilter, FRAME_SIZE_BYTES
+from src.models._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
+from src.models.vosk import vosk_check_for_wake_word, vosk_process_segment
 
 
 @pytest.fixture
@@ -795,27 +797,27 @@ def test_check_for_wake_word_detects_wake_word_anywhere():
 
     # Wake word at start - should match
     mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # Wake word in middle - should match
     mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # Wake word at end - should match
     mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # No wake word - should not match
     mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is False
 
     # Empty text - should NOT match
     mock_rec.FinalResult.return_value = '{"text": ""}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is False
 
 
@@ -833,17 +835,17 @@ def test_check_for_wake_word_handles_multiple_wake_words():
 
     # First wake word at start
     mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # Second wake word at start
     mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # Multi-word wake word at start
     mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
 
@@ -861,12 +863,12 @@ def test_check_for_wake_word_respects_word_boundaries():
 
     # Should match: exact word
     mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
     # Should not match: wake word is part of another word
     mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is False
 
 
@@ -883,7 +885,7 @@ def test_check_for_wake_word_with_grammar_mode():
     mock_rec.FinalResult.return_value = '{"text": "robot"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
 
@@ -900,7 +902,7 @@ def test_check_for_wake_word_without_grammar_mode():
     mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is True
 
 
@@ -917,7 +919,7 @@ def test_check_for_wake_word_no_grammar_no_match():
     mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is False
 
 
@@ -933,7 +935,7 @@ def test_check_for_wake_word_handles_vosk_errors():
     mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
     wake_word_filter.recognizer = mock_rec
 
-    result = WakeWordFilter._vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000)
+    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
     assert result is False
     wake_word_filter.logger.error.assert_called_once()
 
@@ -1269,7 +1271,7 @@ async def test_process_speech_segment_skips_when_shutting_down():
 
     # Should yield nothing when shutting down
     chunks = []
-    async for chunk in WakeWordFilter._vosk_process_segment(
+    async for chunk in vosk_process_segment(
         wake_word_filter, chunk_buffer, byte_buffer
     ):
         chunks.append(chunk)
@@ -1299,7 +1301,7 @@ async def test_process_speech_segment_handles_executor_shutdown_error():
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
-        async for chunk in WakeWordFilter._vosk_process_segment(
+        async for chunk in vosk_process_segment(
             wake_word_filter, chunk_buffer, byte_buffer
         ):
             chunks.append(chunk)
@@ -1329,13 +1331,13 @@ async def test_process_speech_segment_yields_chunks_on_wake_word():
 
     with patch("asyncio.get_running_loop") as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
-        with patch("src.models.wake_word_filter.AudioChunk") as mock_audio_chunk_class:
+        with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
             empty_chunk = Mock()
             empty_chunk.audio = Mock()
             mock_audio_chunk_class.return_value = empty_chunk
 
             chunks = []
-            async for chunk in WakeWordFilter._vosk_process_segment(
+            async for chunk in vosk_process_segment(
                 wake_word_filter, chunk_buffer, byte_buffer
             ):
                 chunks.append(chunk)
@@ -1367,13 +1369,13 @@ async def test_process_speech_segment_yields_empty_chunk_at_end():
 
     with patch("asyncio.get_running_loop") as mock_loop:
         mock_loop.return_value.run_in_executor = mock_run_in_executor
-        with patch("src.models.wake_word_filter.AudioChunk") as mock_audio_chunk_class:
+        with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
             empty_chunk = Mock()
             empty_chunk.audio = Mock()
             mock_audio_chunk_class.return_value = empty_chunk
 
             chunks = []
-            async for chunk in WakeWordFilter._vosk_process_segment(
+            async for chunk in vosk_process_segment(
                 wake_word_filter, chunk_buffer, byte_buffer
             ):
                 chunks.append(chunk)
@@ -1403,7 +1405,7 @@ async def test_process_speech_segment_yields_nothing_when_no_wake_word():
         mock_loop.return_value.run_in_executor = mock_run_in_executor
 
         chunks = []
-        async for chunk in WakeWordFilter._vosk_process_segment(
+        async for chunk in vosk_process_segment(
             wake_word_filter, chunk_buffer, byte_buffer
         ):
             chunks.append(chunk)
@@ -1494,10 +1496,10 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     # Bind real methods so async-generator calls work correctly
     import types
 
+    wf._validate_mic_properties = types.MethodType(WakeWordFilter._validate_mic_properties, wf)
+    wf._process_vad_frame = types.MethodType(WakeWordFilter._process_vad_frame, wf)
+    wf._run_detection = types.MethodType(WakeWordFilter._run_detection, wf)
     wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
-    wf._validate_mic_properties = types.MethodType(
-        WakeWordFilter._validate_mic_properties, wf
-    )
     return wf
 
 
@@ -1576,3 +1578,361 @@ async def test_oww_resets_model_after_segment():
     await collect_stream(stream)
 
     wf.oww_model.reset.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# _process_vad_frame state machine tests
+# ---------------------------------------------------------------------------
+
+def make_vad_filter(detection_engine="vosk"):
+    """Minimal WakeWordFilter mock for _process_vad_frame tests."""
+    wf = Mock()
+    wf.detection_engine = detection_engine
+    wf.logger = Mock()
+    return wf
+
+
+def make_config(max_silence_frames=10, min_speech_frames=3):
+    return _SegmentThresholds(
+        max_silence_frames=max_silence_frames,
+        min_speech_frames=min_speech_frames,
+    )
+
+
+SILENT_FRAME = b"\x00" * FRAME_SIZE_BYTES
+SPEECH_FRAME = b"\x01" * FRAME_SIZE_BYTES
+
+
+class TestProcessVadFrame:
+    """Unit tests for WakeWordFilter._process_vad_frame state machine."""
+
+    # --- IDLE state ---
+
+    def test_idle_silence_stays_idle(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = False
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.IDLE, SILENT_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.IDLE
+        assert complete is False
+        assert seg.speech_frames == 0
+        assert len(seg.speech_buffer) == 0
+
+    def test_idle_speech_transitions_to_active(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.IDLE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.ACTIVE
+        assert complete is False
+        assert seg.speech_frames == 1
+        assert chunk in seg.speech_chunk_buffer
+
+    def test_idle_speech_buffers_frame(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.IDLE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert bytes(seg.speech_buffer) == SPEECH_FRAME
+
+    # --- ACTIVE state ---
+
+    def test_active_speech_increments_speech_frames(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        seg.speech_frames = 5
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.ACTIVE
+        assert seg.speech_frames == 6
+        assert complete is False
+
+    def test_active_silence_transitions_to_trailing(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = False
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SILENT_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.TRAILING
+        assert seg.silence_frames == 1
+        assert complete is False
+
+    def test_active_buffers_every_frame(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert SPEECH_FRAME in seg.speech_buffer
+
+    def test_active_same_chunk_not_added_twice(self):
+        """Two VAD frames from the same audio_chunk -> chunk appended only once."""
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        chunk = Mock()
+        seg.speech_chunk_buffer.append(chunk)  # already added
+
+        WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert seg.speech_chunk_buffer.count(chunk) == 1
+
+    def test_active_different_chunk_is_added(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        first_chunk = Mock()
+        seg.speech_chunk_buffer.append(first_chunk)
+        new_chunk = Mock()
+
+        WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SPEECH_FRAME, new_chunk, make_config()
+        )
+
+        assert new_chunk in seg.speech_chunk_buffer
+
+    # --- TRAILING state ---
+
+    def test_trailing_speech_resumes_active(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        seg.speech_frames = 5
+        seg.silence_frames = 3
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.TRAILING, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.ACTIVE
+        assert seg.silence_frames == 0
+        assert seg.speech_frames == 6
+        assert complete is False
+
+    def test_trailing_silence_increments_silence_frames(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = False
+        seg = _SpeechSegment()
+        seg.silence_frames = 2
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.TRAILING, SILENT_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.TRAILING
+        assert seg.silence_frames == 3
+        assert complete is False
+
+    def test_trailing_silence_reaches_max_returns_complete(self):
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = False
+        seg = _SpeechSegment()
+        seg.silence_frames = 9  # one below max
+        chunk = Mock()
+        config = make_config(max_silence_frames=10)
+
+        complete, _ = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.TRAILING, SILENT_FRAME, chunk, config
+        )
+
+        assert complete is True
+
+    def test_segment_complete_when_buffer_exceeds_max(self):
+        """Buffer overflow triggers segment_complete regardless of state."""
+        from src.models.wake_word_filter import MAX_BUFFER_SIZE_BYTES
+        wf = make_vad_filter()
+        wf.vad.is_speech.return_value = True
+        seg = _SpeechSegment()
+        seg.speech_buffer.extend(b"\x00" * MAX_BUFFER_SIZE_BYTES)
+        chunk = Mock()
+
+        complete, _ = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.ACTIVE, SPEECH_FRAME, chunk, make_config()
+        )
+
+        assert complete is True
+
+    # --- VAD error handling ---
+
+    def test_vad_error_treated_as_silence(self):
+        """VAD exception -> is_speech=False, state unchanged from IDLE."""
+        wf = make_vad_filter()
+        wf.vad.is_speech.side_effect = Exception("VAD exploded")
+        seg = _SpeechSegment()
+        chunk = Mock()
+
+        complete, new_state = WakeWordFilter._process_vad_frame(
+            wf, seg, _SpeechState.IDLE, SILENT_FRAME, chunk, make_config()
+        )
+
+        assert new_state == _SpeechState.IDLE
+        assert complete is False
+
+
+# ---------------------------------------------------------------------------
+# _finalize_segment tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_finalize_segment_oww_false_positive_resets_model():
+    """OWW segment below min_speech_frames -> oww_model.reset() called, nothing yielded."""
+    wf = make_oww_filter()
+    seg = _SpeechSegment()
+    seg.speech_frames = 1  # below default min (300ms // 30ms = 10 frames)
+    config = _SegmentThresholds(max_silence_frames=30, min_speech_frames=10)
+
+    chunks = []
+    async for chunk in WakeWordFilter._finalize_segment(wf, seg, config):
+        chunks.append(chunk)
+
+    assert len(chunks) == 0
+    wf.oww_model.reset.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_finalize_segment_vosk_false_positive_does_not_reset_oww_model():
+    """Vosk segment below min_speech_frames -> oww_model.reset() NOT called."""
+    wf = make_vad_filter(detection_engine="vosk")
+    wf.oww_model = Mock()
+    seg = _SpeechSegment()
+    seg.speech_frames = 1
+    config = _SegmentThresholds(max_silence_frames=30, min_speech_frames=10)
+
+    async for _ in WakeWordFilter._finalize_segment(wf, seg, config):
+        pass
+
+    wf.oww_model.reset.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_finalize_segment_resets_speech_segment_on_false_positive():
+    """_finalize_segment always resets the segment, even on false positive."""
+    wf = make_oww_filter()
+    seg = _SpeechSegment()
+    seg.speech_frames = 1
+    seg.speech_buffer.extend(b"\x00" * 100)
+    seg.speech_chunk_buffer.append(Mock())
+    config = _SegmentThresholds(max_silence_frames=30, min_speech_frames=10)
+
+    async for _ in WakeWordFilter._finalize_segment(wf, seg, config):
+        pass
+
+    assert seg.speech_frames == 0
+    assert len(seg.speech_buffer) == 0
+    assert len(seg.speech_chunk_buffer) == 0
+
+
+# ---------------------------------------------------------------------------
+# get_audio end-of-stream and pause-with-buffer tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_ends_mid_speech_runs_detection():
+    """Mic stream ends while ACTIVE with enough frames -> _run_detection called."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # Enough speech frames to exceed min_speech_frames (300ms // 30ms = 10)
+    speech_chunks = [make_audio_chunk(960) for _ in range(12)]
+
+    wf.microphone_client.get_audio.return_value = async_iter(speech_chunks)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks = await collect_stream(stream)
+
+    # Wake word was detected, so chunks should be yielded
+    assert len(chunks) > 0
+    assert chunks[-1].audio.audio_data == b""
+
+
+@pytest.mark.asyncio
+async def test_stream_ends_mid_speech_below_min_frames_discards():
+    """Mic stream ends while ACTIVE but below min_speech_frames -> nothing yielded."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # Only 2 frames — below min_speech_frames (10)
+    speech_chunks = [make_audio_chunk(960) for _ in range(2)]
+
+    wf.microphone_client.get_audio.return_value = async_iter(speech_chunks)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks = await collect_stream(stream)
+
+    assert len(chunks) == 0
+    wf.oww_model.reset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_pause_with_buffered_audio_resets_segment():
+    """Pausing detection mid-speech discards buffered audio and resets to IDLE."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.1}
+
+    # Two speech chunks, then detection is paused, then stream ends
+    speech_chunks = [make_audio_chunk(960) for _ in range(2)]
+    pause_chunk = make_audio_chunk(960)
+
+    call_count = 0
+
+    async def mic_stream_with_pause():
+        nonlocal call_count
+        for chunk in speech_chunks:
+            yield chunk
+        # Pause detection before the next chunk
+        wf.detection_running = False
+        yield pause_chunk
+
+    wf.microphone_client.get_audio.return_value = mic_stream_with_pause()
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks = await collect_stream(stream)
+
+    # Nothing should be yielded — segment was discarded on pause
+    assert len(chunks) == 0
