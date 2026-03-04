@@ -121,7 +121,9 @@ def oww_run_inference(instance: Any, speech_segment: _SpeechSegment) -> bool:
     return False
 
 
-def oww_process_vad_frame(instance: Any, speech_segment: _SpeechSegment, frame: bytes) -> None:
+def oww_process_vad_frame(
+    instance: Any, speech_segment: _SpeechSegment, frame: bytes
+) -> None:
     """Feed audio frame into OWW buffer and run inference."""
     if speech_segment.oww_detected:
         return

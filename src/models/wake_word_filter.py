@@ -345,7 +345,10 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                 # Skip processing when detection is paused (e.g., during TTS)
                 if not self.detection_running:
-                    if speech_segment.speech_chunk_buffer or speech_segment.speech_buffer:
+                    if (
+                        speech_segment.speech_chunk_buffer
+                        or speech_segment.speech_buffer
+                    ):
                         speech_segment.reset()
                         state = _SpeechState.IDLE
                     continue
@@ -364,7 +367,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_segment, state, frame, audio_chunk, config
                     )
                     if segment_complete:
-                        async for chunk in self._finalize_segment(speech_segment, config):
+                        async for chunk in self._finalize_segment(
+                            speech_segment, config
+                        ):
                             yield chunk
                         state = _SpeechState.IDLE
                         break
@@ -377,7 +382,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                         len(speech_segment.speech_buffer),
                     )
                     async for chunk in self._run_detection(
-                        speech_segment.speech_chunk_buffer, speech_segment.speech_buffer, speech_segment.oww_detected
+                        speech_segment.speech_chunk_buffer,
+                        speech_segment.speech_buffer,
+                        speech_segment.oww_detected,
                     ):
                         yield chunk
                 else:
@@ -449,10 +456,14 @@ class WakeWordFilter(AudioIn, EasyResource):
             self.oww_model.reset()
         else:
             # Vosk: run inference on the complete buffered segment
-            async for chunk in vosk_process_segment(self, speech_chunk_buffer, speech_buffer):
+            async for chunk in vosk_process_segment(
+                self, speech_chunk_buffer, speech_buffer
+            ):
                 yield chunk
 
-    async def _finalize_segment(self, speech_segment: _SpeechSegment, config: _SegmentThresholds) -> AsyncGenerator[AudioChunk, None]:
+    async def _finalize_segment(
+        self, speech_segment: _SpeechSegment, config: _SegmentThresholds
+    ) -> AsyncGenerator[AudioChunk, None]:
         """Finalize the current segment and reset to IDLE."""
         if speech_segment.speech_frames >= config.min_speech_frames:
             self.logger.debug(
@@ -461,7 +472,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                 len(speech_segment.speech_buffer),
             )
             async for chunk in self._run_detection(
-                speech_segment.speech_chunk_buffer, speech_segment.speech_buffer, speech_segment.oww_detected
+                speech_segment.speech_chunk_buffer,
+                speech_segment.speech_buffer,
+                speech_segment.oww_detected,
             ):
                 yield chunk
         else:
@@ -503,7 +516,10 @@ class WakeWordFilter(AudioIn, EasyResource):
         else:
             # ACTIVE or TRAILING: buffer every frame, but only add the chunk once
             # (one audio_chunk may contain multiple VAD frames)
-            if not speech_segment.speech_chunk_buffer or speech_segment.speech_chunk_buffer[-1] is not audio_chunk:
+            if (
+                not speech_segment.speech_chunk_buffer
+                or speech_segment.speech_chunk_buffer[-1] is not audio_chunk
+            ):
                 speech_segment.speech_chunk_buffer.append(audio_chunk)
             speech_segment.speech_buffer.extend(frame)
 

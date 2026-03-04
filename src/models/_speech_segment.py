@@ -3,14 +3,15 @@ from enum import Enum, auto
 
 
 class _SpeechState(Enum):
-    IDLE = auto()      # waiting for speech onset
-    ACTIVE = auto()    # VAD active, buffering speech frames
+    IDLE = auto()  # waiting for speech onset
+    ACTIVE = auto()  # VAD active, buffering speech frames
     TRAILING = auto()  # silence after speech, waiting for timeout
 
 
 @dataclasses.dataclass
 class _SegmentThresholds:
     """Frame-count thresholds for speech segment detection."""
+
     max_silence_frames: int
     min_speech_frames: int
 
@@ -18,6 +19,7 @@ class _SegmentThresholds:
 @dataclasses.dataclass
 class _SpeechSegment:
     """Buffers and counters for an active speech segment."""
+
     speech_frames: int = 0
     silence_frames: int = 0
     oww_detected: bool = False

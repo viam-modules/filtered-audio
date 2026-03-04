@@ -110,7 +110,10 @@ def test_validate_config_missing_wake_words():
             # wake_words missing
         }
 
-        with pytest.raises(ValueError, match="wake_words is required when using the vosk detection engine"):
+        with pytest.raises(
+            ValueError,
+            match="wake_words is required when using the vosk detection engine",
+        ):
             WakeWordFilter.validate_config(config)
 
 
@@ -126,7 +129,10 @@ def test_validate_config_empty_wake_words():
             "detection_engine": "vosk",
         }
 
-        with pytest.raises(ValueError, match="wake_words is required when using the vosk detection engine"):
+        with pytest.raises(
+            ValueError,
+            match="wake_words is required when using the vosk detection engine",
+        ):
             WakeWordFilter.validate_config(config)
 
 
@@ -1496,7 +1502,9 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     # Bind real methods so async-generator calls work correctly
     import types
 
-    wf._validate_mic_properties = types.MethodType(WakeWordFilter._validate_mic_properties, wf)
+    wf._validate_mic_properties = types.MethodType(
+        WakeWordFilter._validate_mic_properties, wf
+    )
     wf._process_vad_frame = types.MethodType(WakeWordFilter._process_vad_frame, wf)
     wf._run_detection = types.MethodType(WakeWordFilter._run_detection, wf)
     wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
@@ -1583,6 +1591,7 @@ async def test_oww_resets_model_after_segment():
 # ---------------------------------------------------------------------------
 # _process_vad_frame state machine tests
 # ---------------------------------------------------------------------------
+
 
 def make_vad_filter(detection_engine="vosk"):
     """Minimal WakeWordFilter mock for _process_vad_frame tests."""
@@ -1772,6 +1781,7 @@ class TestProcessVadFrame:
     def test_segment_complete_when_buffer_exceeds_max(self):
         """Buffer overflow triggers segment_complete regardless of state."""
         from src.models.wake_word_filter import MAX_BUFFER_SIZE_BYTES
+
         wf = make_vad_filter()
         wf.vad.is_speech.return_value = True
         seg = _SpeechSegment()
