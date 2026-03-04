@@ -97,30 +97,66 @@ def test_validate_config_empty_microphone():
 
 
 def test_validate_config_missing_wake_words():
-    """Test validate_config raises error when wake_words is missing"""
+    """Test validate_config raises error when wake_words is missing for vosk"""
     config = Mock()
     config.attributes = Mock()
 
     with patch("src.models.wake_word_filter.struct_to_dict") as mock_struct:
         mock_struct.return_value = {
-            "source_microphone": "mic1"
+            "source_microphone": "mic1",
+            "detection_engine": "vosk",
             # wake_words missing
         }
 
-        with pytest.raises(ValueError, match="wake_words attribute is required"):
+        with pytest.raises(ValueError, match="wake_words is required when using the vosk detection engine"):
             WakeWordFilter.validate_config(config)
 
 
 def test_validate_config_empty_wake_words():
-    """Test validate_config raises error when wake_words is empty list"""
+    """Test validate_config raises error when wake_words is empty for vosk"""
     config = Mock()
     config.attributes = Mock()
 
     with patch("src.models.wake_word_filter.struct_to_dict") as mock_struct:
-        mock_struct.return_value = {"source_microphone": "mic1", "wake_words": []}
+        mock_struct.return_value = {
+            "source_microphone": "mic1",
+            "wake_words": [],
+            "detection_engine": "vosk",
+        }
 
-        with pytest.raises(ValueError, match="wake_words attribute is required"):
+        with pytest.raises(ValueError, match="wake_words is required when using the vosk detection engine"):
             WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_oww_missing_wake_words_ok():
+    """Test validate_config does not error when wake_words is missing for openwakeword"""
+    config = Mock()
+    config.attributes = Mock()
+
+    with patch("src.models.wake_word_filter.struct_to_dict") as mock_struct:
+        mock_struct.return_value = {
+            "source_microphone": "mic1",
+            "detection_engine": "openwakeword",
+            "oww_model_path": "/path/to/model.onnx",
+        }
+
+        WakeWordFilter.validate_config(config)  # should not raise
+
+
+def test_validate_config_oww_empty_wake_words_ok():
+    """Test validate_config does not error when wake_words is empty for openwakeword"""
+    config = Mock()
+    config.attributes = Mock()
+
+    with patch("src.models.wake_word_filter.struct_to_dict") as mock_struct:
+        mock_struct.return_value = {
+            "source_microphone": "mic1",
+            "detection_engine": "openwakeword",
+            "oww_model_path": "/path/to/model.onnx",
+            "wake_words": [],
+        }
+
+        WakeWordFilter.validate_config(config)  # should not raise
 
 
 def test_validate_config_rejects_non_string_wake_words(mock_env):

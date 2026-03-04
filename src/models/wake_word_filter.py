@@ -695,6 +695,10 @@ class WakeWordFilter(AudioIn, EasyResource):
             self.executor.shutdown(wait=True)
             self.logger.debug("Thread pool executor shut down")
 
+        if self.oww_model is not None:
+            self.oww_model.reset()
+            self.oww_model = None
+
     async def do_command(
         self, command: Mapping[str, Any], **kwargs
     ) -> Mapping[str, Any]:
