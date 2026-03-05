@@ -14,7 +14,6 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
-import numpy as np
 
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
@@ -423,6 +422,8 @@ class WakeWordFilter(AudioIn, EasyResource):
 
             speech_segment = _SpeechSegment()
             state = _SpeechState.IDLE
+            vad_audio_buffer = bytearray()
+
 
             async for audio_chunk in mic_stream:
                 if self.is_shutting_down:
@@ -437,17 +438,18 @@ class WakeWordFilter(AudioIn, EasyResource):
                     ):
                         speech_segment.reset()
                         state = _SpeechState.IDLE
+                    vad_audio_buffer.clear()
                     continue
 
                 audio_data = audio_chunk.audio.audio_data
                 if not audio_data:
                     continue
 
-                speech_segment.audio_buffer.extend(audio_data)
+                vad_audio_buffer.extend(audio_data)
 
-                while len(speech_segment.audio_buffer) >= FRAME_SIZE_BYTES:
-                    frame = bytes(speech_segment.audio_buffer[:FRAME_SIZE_BYTES])
-                    del speech_segment.audio_buffer[:FRAME_SIZE_BYTES]
+                while len(vad_audio_buffer) >= FRAME_SIZE_BYTES:
+                    frame = bytes(vad_audio_buffer[:FRAME_SIZE_BYTES])
+                    del vad_audio_buffer[:FRAME_SIZE_BYTES]
 
                     segment_complete, state = self._process_vad_frame(
                         speech_segment, state, frame, audio_chunk, config
