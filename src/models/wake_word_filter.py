@@ -14,6 +14,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
+import numpy as np
 
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
 from viam.proto.app.robot import ComponentConfig
@@ -289,7 +290,92 @@ class WakeWordFilter(AudioIn, EasyResource):
                         f"oww_threshold must be 0.0-1.0, got {oww_threshold}"
                     )
 
+        # Validate detection_engine
+        detection_engine: Any = attrs.get("detection_engine", "vosk")
+        if detection_engine not in ("vosk", "openwakeword"):
+            raise ValueError(
+                f"detection_engine must be 'vosk' or 'openwakeword', got '{detection_engine}'"
+            )
+
+        # Validate openWakeWord-specific config
+        if detection_engine == "openwakeword":
+            oww_model_path: Any = attrs.get("oww_model_path", "")
+            if not isinstance(oww_model_path, str) or not oww_model_path:
+                raise ValueError(
+                    "oww_model_path must be a non-empty string"
+                    if not isinstance(oww_model_path, str)
+                    else "oww_model_path is required when detection_engine is 'openwakeword'"
+                )
+
+            oww_threshold: Any = attrs.get("oww_threshold", None)
+            if oww_threshold is not None:
+                if not isinstance(oww_threshold, (int, float)):
+                    raise ValueError("oww_threshold must be a number")
+                if oww_threshold < 0.0 or oww_threshold > 1.0:
+                    raise ValueError(
+                        f"oww_threshold must be 0.0-1.0, got {oww_threshold}"
+                    )
+
         return deps, []
+
+    def _validate_mic_properties(self, mic_props: Any) -> None:
+        """Raise ValueError if mic sample rate or channel count is incompatible."""
+        if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
+            raise ValueError(
+                f"Wake word filter requires 16000 Hz audio, "
+                f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
+                f"Please configure source microphone to output 16000 Hz PCM16 audio."
+            )
+        if mic_props.num_channels != 1:
+            raise ValueError(
+                f"Wake word filter requires mono (1 channel) audio, "
+                f"but source microphone provides {mic_props.num_channels} channels. "
+                f"Please configure source microphone for mono audio."
+            )
+
+    async def _finalize_segment(
+        self,
+        speech_chunk_buffer: List[AudioChunk],
+        speech_buffer: bytearray,
+        oww_detected: bool,
+    ) -> AsyncGenerator[AudioChunk, None]:
+        """
+        Finalize a completed speech segment for the active detection engine.
+
+        OWW: detection already happened per-frame, so just check the result
+        and yield buffered chunks if the wake word was detected, then reset
+        the OWW model state for the next segment.
+
+        Vosk: detection hasn't run yet — run inference on the full buffered
+        segment now, then yield chunks if the wake word was found.
+        """
+        if self.detection_engine == "openwakeword":
+            if oww_detected:
+                self.logger.info(
+                    "OWW: Yielding %d chunks (%d bytes)",
+                    len(speech_chunk_buffer),
+                    len(speech_buffer),
+                )
+                for chunk in speech_chunk_buffer:
+                    yield chunk
+                empty_response = AudioChunk()
+                empty_response.audio.audio_data = b""
+                yield empty_response
+            else:
+                buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
+                max_score = max(buf) if buf else 0.0
+                self.logger.debug(
+                    "OWW: No detection (max_score=%.3f, threshold=%.2f)",
+                    max_score,
+                    self.oww_threshold,
+                )
+            self.oww_model.reset()
+        else:
+            # Vosk: run inference on the complete buffered segment
+            async for chunk in self._vosk_process_segment(
+                speech_chunk_buffer, speech_buffer
+            ):
+                yield chunk
 
     async def get_audio(
         self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs
