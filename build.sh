@@ -16,7 +16,7 @@ if [ ! -d "$VOSK_MODELS_DIR/$VOSK_MODEL" ]; then
     unzip -q "/tmp/$VOSK_MODEL.zip" -d "$VOSK_MODELS_DIR"
     rm "/tmp/$VOSK_MODEL.zip"
     echo "Vosk model downloaded to $VOSK_MODELS_DIR/$VOSK_MODEL"
-else
+elsexw
     echo "Vosk model already exists at $VOSK_MODELS_DIR/$VOSK_MODEL"
 fi
 
@@ -26,10 +26,13 @@ import os, openwakeword, openwakeword.utils
 d = os.path.join(os.path.dirname(openwakeword.__file__), 'resources', 'models')
 os.makedirs(d, exist_ok=True)
 for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
-    url = m['download_url'].replace('.tflite', '.onnx')
-    f = os.path.join(d, url.split('/')[-1])
-    if not os.path.exists(f):
-        openwakeword.utils.download_file(url, d)
+    tflite_url = m['download_url']
+    onnx_url = m['download_url'].replace('.tflite', '.onnx')
+    urls = [onnx_url, tflite_url]
+    for url in urls:
+        f = os.path.join(d, url.split('/')[-1])
+        if not os.path.exists(f):
+            openwakeword.utils.download_file(url, d)
 "
 
 # Install pyinstaller
