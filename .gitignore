@@ -169,3 +169,5 @@ module.tar.gz
 
 # Bundled Vosk models (downloaded during build)
 vosk_models/
+
+CLAUDE.md

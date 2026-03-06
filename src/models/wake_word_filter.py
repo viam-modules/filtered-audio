@@ -25,7 +25,7 @@ from viam.utils import struct_to_dict
 from viam.streams import StreamWithIterator
 
 from .fuzzy_matcher import FuzzyWakeWordMatcher
-from .oww import setup_oww, oww_process_vad_frame
+from .oww import setup_oww, oww_check_for_wake_word
 from .vosk import (
     setup_vosk,
     vosk_process_segment,
@@ -317,20 +317,6 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return deps, []
 
-    def _validate_mic_properties(self, mic_props: Any) -> None:
-        """Raise ValueError if mic sample rate or channel count is incompatible."""
-        if mic_props.sample_rate_hz != AUDIO_SAMPLE_RATE_HZ:
-            raise ValueError(
-                f"Wake word filter requires 16000 Hz audio, "
-                f"but source microphone provides {mic_props.sample_rate_hz} Hz. "
-                f"Please configure source microphone to output 16000 Hz PCM16 audio."
-            )
-        if mic_props.num_channels != 1:
-            raise ValueError(
-                f"Wake word filter requires mono (1 channel) audio, "
-                f"but source microphone provides {mic_props.num_channels} channels. "
-                f"Please configure source microphone for mono audio."
-            )
 
     async def _finalize_segment(
         self,
@@ -485,7 +471,7 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return StreamWithIterator(audio_generator())
 
-    async def _validate_mic_properties(self) -> Any:
+    async def _validate_mic_properties(self) -> AudioIn.Properties:
         """Fetch mic properties, log them, and raise ValueError if incompatible."""
         mic_props = await self.microphone_client.get_properties()
         self.logger.debug(
@@ -600,7 +586,9 @@ class WakeWordFilter(AudioIn, EasyResource):
                 speech_segment.speech_chunk_buffer.append(audio_chunk)
                 speech_segment.speech_buffer.extend(frame)
                 if self.detection_engine == "openwakeword":
-                    oww_process_vad_frame(self, speech_segment, frame)
+                    if not speech_segment.oww_detected:
+                        speech_segment.oww_audio_buffer.extend(frame)
+                        speech_segment.oww_detected = oww_check_for_wake_word(self, speech_segment.oww_audio_buffer)
         else:
             # ACTIVE or TRAILING: buffer every frame, but only add the chunk once
             # (one audio_chunk may contain multiple VAD frames)
@@ -612,7 +600,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             speech_segment.speech_buffer.extend(frame)
 
             if self.detection_engine == "openwakeword":
-                oww_process_vad_frame(self, speech_segment, frame)
+                if not speech_segment.oww_detected:
+                    speech_segment.oww_audio_buffer.extend(frame)
+                    speech_segment.oww_detected = oww_check_for_wake_word(self, speech_segment.oww_audio_buffer)
 
             if state == _SpeechState.ACTIVE:
                 if is_speech:

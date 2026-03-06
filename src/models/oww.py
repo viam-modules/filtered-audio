@@ -14,7 +14,6 @@ import certifi
 import numpy as np
 
 from .download import download_file
-from ._speech_segment import _SpeechSegment
 
 # OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
 OWW_CHUNK_SIZE = 2560
@@ -103,11 +102,11 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
     )
 
 
-def oww_run_inference(instance: Any, speech_segment: _SpeechSegment) -> bool:
+def oww_check_for_wake_word(instance: Any, oww_audio_buffer: bytearray) -> bool:
     """Drain oww_audio_buffer in chunks and run OWW inference on each."""
-    while len(speech_segment.oww_audio_buffer) >= OWW_CHUNK_SIZE:
-        oww_chunk = bytes(speech_segment.oww_audio_buffer[:OWW_CHUNK_SIZE])
-        del speech_segment.oww_audio_buffer[:OWW_CHUNK_SIZE]
+    while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
+        oww_chunk = bytes(oww_audio_buffer[:OWW_CHUNK_SIZE])
+        del oww_audio_buffer[:OWW_CHUNK_SIZE]
         audio_int16 = np.frombuffer(oww_chunk, dtype=np.int16)
         prediction = instance.oww_model.predict(audio_int16)
         score = prediction.get(instance.oww_model_name, 0.0)
@@ -121,12 +120,3 @@ def oww_run_inference(instance: Any, speech_segment: _SpeechSegment) -> bool:
     return False
 
 
-def oww_process_vad_frame(
-    instance: Any, speech_segment: _SpeechSegment, frame: bytes
-) -> None:
-    """Feed audio frame into OWW buffer and run inference."""
-    if speech_segment.oww_detected:
-        return
-    speech_segment.oww_audio_buffer.extend(frame)
-    if oww_run_inference(instance, speech_segment):
-        speech_segment.oww_detected = True
