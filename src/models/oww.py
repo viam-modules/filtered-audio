@@ -113,7 +113,12 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
 
 
 def oww_check_for_wake_word(instance: Any, oww_audio_buffer: bytearray) -> bool:
-    """Drain oww_audio_buffer in chunks and run OWW inference on each."""
+    """Drain oww_audio_buffer in chunks and run OWW inference on each.
+
+    Inference runs synchronously on the event loop thread. OWW inference on CPU is ~5ms
+    per 80ms chunk on Pi, so this is fine. If heavier models are needed,
+    offload to a ThreadPoolExecutor.
+    """
     while len(oww_audio_buffer) >= OWW_CHUNK_SIZE:
         oww_chunk = bytes(oww_audio_buffer[:OWW_CHUNK_SIZE])
         del oww_audio_buffer[:OWW_CHUNK_SIZE]
