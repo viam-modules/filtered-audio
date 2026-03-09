@@ -2,7 +2,6 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from src.models.wake_word_filter import WakeWordFilter, FRAME_SIZE_BYTES
 from src.models._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
-from src.models.vosk import vosk_check_for_wake_word, vosk_process_segment
 
 
 @pytest.fixture
@@ -789,162 +788,6 @@ def test_new_handles_missing_microphone_in_dependencies(mock_env):
         WakeWordFilter.new(config, dependencies)
 
 
-def test_check_for_wake_word_detects_wake_word_anywhere():
-    """Test check_for_wake_word returns True when wake word is anywhere in audio"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = True
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    wake_word_filter.recognizer = mock_rec
-
-    # Wake word at start - should match
-    mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # Wake word in middle - should match
-    mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # Wake word at end - should match
-    mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # No wake word - should not match
-    mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is False
-
-    # Empty text - should NOT match
-    mock_rec.FinalResult.return_value = '{"text": ""}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is False
-
-
-def test_check_for_wake_word_handles_multiple_wake_words():
-    """Test check_for_wake_word works with multiple wake words"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot", "computer", "hey assistant"]
-    wake_word_filter.fuzzy_matcher = None  # Exact matching
-    wake_word_filter.use_grammar = True
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    wake_word_filter.recognizer = mock_rec
-
-    # First wake word at start
-    mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # Second wake word at start
-    mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # Multi-word wake word at start
-    mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-
-def test_check_for_wake_word_respects_word_boundaries():
-    """Test check_for_wake_word doesn't match substrings"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = True
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    wake_word_filter.recognizer = mock_rec
-
-    # Should match: exact word
-    mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-    # Should not match: wake word is part of another word
-    mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is False
-
-
-def test_check_for_wake_word_with_grammar_mode():
-    """Test _check_for_wake_word works in grammar mode"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot", "computer"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = True
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    mock_rec.FinalResult.return_value = '{"text": "robot"}'
-    wake_word_filter.recognizer = mock_rec
-
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-
-def test_check_for_wake_word_without_grammar_mode():
-    """Test _check_for_wake_word uses full transcription and searches for wake word"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = False
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-    wake_word_filter.recognizer = mock_rec
-
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is True
-
-
-def test_check_for_wake_word_no_grammar_no_match():
-    """Test _check_for_wake_word returns False when wake word not in transcription"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = False
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.return_value = True
-    mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
-    wake_word_filter.recognizer = mock_rec
-
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is False
-
-
-def test_check_for_wake_word_handles_vosk_errors():
-    """Test check_for_wake_word returns False on Vosk errors"""
-    wake_word_filter = Mock()
-    wake_word_filter.wake_words = ["robot"]
-    wake_word_filter.fuzzy_matcher = None
-    wake_word_filter.use_grammar = True
-    wake_word_filter.logger = Mock()
-
-    mock_rec = Mock()
-    mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
-    wake_word_filter.recognizer = mock_rec
-
-    result = vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000)
-    assert result is False
-    wake_word_filter.logger.error.assert_called_once()
-
 
 def test_validate_config_accepts_vosk_engine(mock_env):
     """Test validate_config accepts detection_engine='vosk'"""
@@ -1266,160 +1109,6 @@ async def test_close_shuts_down_executor():
 
 
 @pytest.mark.asyncio
-async def test_process_speech_segment_skips_when_shutting_down():
-    """Test _process_speech_segment returns early if shutting down"""
-    wake_word_filter = Mock()
-    wake_word_filter.is_shutting_down = True
-    wake_word_filter.logger = Mock()
-
-    chunk_buffer = [Mock(), Mock()]
-    byte_buffer = bytearray(b"\x00" * 1000)
-
-    # Should yield nothing when shutting down
-    chunks = []
-    async for chunk in vosk_process_segment(
-        wake_word_filter, chunk_buffer, byte_buffer
-    ):
-        chunks.append(chunk)
-
-    assert len(chunks) == 0
-    wake_word_filter.logger.debug.assert_called_with(
-        "Skipping speech processing due to shutdown"
-    )
-
-
-@pytest.mark.asyncio
-async def test_process_speech_segment_handles_executor_shutdown_error():
-    """Test _process_speech_segment handles RuntimeError during shutdown gracefully"""
-    wake_word_filter = Mock()
-    wake_word_filter.is_shutting_down = False
-    wake_word_filter.logger = Mock()
-    wake_word_filter.executor = Mock()
-
-    chunk_buffer = [Mock()]
-    byte_buffer = bytearray(b"\x00" * 1000)
-
-    # Mock run_in_executor to raise RuntimeError with "shutdown" in message
-    async def mock_run_in_executor(*args):
-        raise RuntimeError("cannot schedule new futures after shutdown")
-
-    with patch("asyncio.get_running_loop") as mock_loop:
-        mock_loop.return_value.run_in_executor = mock_run_in_executor
-
-        chunks = []
-        async for chunk in vosk_process_segment(
-            wake_word_filter, chunk_buffer, byte_buffer
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) == 0
-        wake_word_filter.logger.debug.assert_called_with(
-            "Executor shutdown during processing, ignoring"
-        )
-
-
-@pytest.mark.asyncio
-async def test_process_speech_segment_yields_chunks_on_wake_word():
-    """Test _process_speech_segment yields chunks when wake word detected"""
-    wake_word_filter = Mock()
-    wake_word_filter.is_shutting_down = False
-    wake_word_filter.logger = Mock()
-    wake_word_filter.executor = Mock()
-
-    mock_chunk1 = Mock()
-    mock_chunk2 = Mock()
-    chunk_buffer = [mock_chunk1, mock_chunk2]
-    byte_buffer = bytearray(b"\x00" * 1000)
-
-    # Mock the wake word check to return True
-    async def mock_run_in_executor(executor, func, *args):
-        return True  # Wake word detected
-
-    with patch("asyncio.get_running_loop") as mock_loop:
-        mock_loop.return_value.run_in_executor = mock_run_in_executor
-        with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
-            empty_chunk = Mock()
-            empty_chunk.audio = Mock()
-            mock_audio_chunk_class.return_value = empty_chunk
-
-            chunks = []
-            async for chunk in vosk_process_segment(
-                wake_word_filter, chunk_buffer, byte_buffer
-            ):
-                chunks.append(chunk)
-
-            # Should yield 2 audio chunks + 1 empty chunk at end
-            assert len(chunks) == 3
-            assert chunks[0] == mock_chunk1
-            assert chunks[1] == mock_chunk2
-            assert chunks[2] == empty_chunk
-
-
-@pytest.mark.asyncio
-async def test_process_speech_segment_yields_empty_chunk_at_end():
-    """Test _process_speech_segment yields an empty AudioChunk at the end to signal segment end"""
-    wake_word_filter = Mock()
-    wake_word_filter.is_shutting_down = False
-    wake_word_filter.logger = Mock()
-    wake_word_filter.executor = Mock()
-
-    mock_chunk = Mock()
-    mock_chunk.audio = Mock()
-    mock_chunk.audio.audio_data = b"\x00" * 100
-    chunk_buffer = [mock_chunk]
-    byte_buffer = bytearray(b"\x00" * 1000)
-
-    # Mock the wake word check to return True
-    async def mock_run_in_executor(executor, func, *args):
-        return True  # Wake word detected
-
-    with patch("asyncio.get_running_loop") as mock_loop:
-        mock_loop.return_value.run_in_executor = mock_run_in_executor
-        with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
-            empty_chunk = Mock()
-            empty_chunk.audio = Mock()
-            mock_audio_chunk_class.return_value = empty_chunk
-
-            chunks = []
-            async for chunk in vosk_process_segment(
-                wake_word_filter, chunk_buffer, byte_buffer
-            ):
-                chunks.append(chunk)
-
-            # Last chunk should be the empty AudioChunk
-            assert len(chunks) == 2
-            assert chunks[0] == mock_chunk
-            assert chunks[1] == empty_chunk
-
-
-@pytest.mark.asyncio
-async def test_process_speech_segment_yields_nothing_when_no_wake_word():
-    """Test _process_speech_segment yields nothing when wake word not detected"""
-    wake_word_filter = Mock()
-    wake_word_filter.is_shutting_down = False
-    wake_word_filter.logger = Mock()
-    wake_word_filter.executor = Mock()
-
-    chunk_buffer = [Mock(), Mock()]
-    byte_buffer = bytearray(b"\x00" * 1000)
-
-    # Mock the wake word check to return False
-    async def mock_run_in_executor(executor, func, *args):
-        return False  # No wake word
-
-    with patch("asyncio.get_running_loop") as mock_loop:
-        mock_loop.return_value.run_in_executor = mock_run_in_executor
-
-        chunks = []
-        async for chunk in vosk_process_segment(
-            wake_word_filter, chunk_buffer, byte_buffer
-        ):
-            chunks.append(chunk)
-
-        assert len(chunks) == 0
-
-
-@pytest.mark.asyncio
 async def test_do_command_pause_detection():
     """Test do_command pauses detection"""
     wake_word_filter = Mock()
@@ -1587,10 +1276,6 @@ async def test_oww_resets_model_after_segment():
 
     wf.oww_model.reset.assert_called()
 
-
-# ---------------------------------------------------------------------------
-# _process_vad_frame state machine tests
-# ---------------------------------------------------------------------------
 
 
 def make_vad_filter(detection_engine="vosk"):
@@ -1811,11 +1496,6 @@ class TestProcessVadFrame:
         assert complete is False
 
 
-# ---------------------------------------------------------------------------
-# _finalize_segment tests
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_finalize_segment_oww_false_positive_resets_model():
     """OWW segment below min_speech_frames -> oww_model.reset() called, nothing yielded."""
@@ -1863,11 +1543,6 @@ async def test_finalize_segment_resets_speech_segment_on_false_positive():
     assert seg.speech_frames == 0
     assert len(seg.speech_buffer) == 0
     assert len(seg.speech_chunk_buffer) == 0
-
-
-# ---------------------------------------------------------------------------
-# get_audio end-of-stream and pause-with-buffer tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

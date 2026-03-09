@@ -2,8 +2,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
-from src.models._speech_segment import _SpeechSegment
-from src.models.oww import setup_oww, oww_run_inference, oww_process_vad_frame, OWW_CHUNK_SIZE
+from src.models.oww import setup_oww, oww_check_for_wake_word, OWW_CHUNK_SIZE
 
 
 class TestSetupOww:
@@ -29,97 +28,51 @@ class TestSetupOww:
         mock_oww.utils = Mock()
         return mock_oww
 
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_loads_local_model(self, mock_makedirs, mock_exists):
+    def _call_setup_oww(self, model_path, platform="linux", oww_model_cls=None, threshold=0.5):
+        """Run setup_oww with mocked openwakeword and sys.platform. Returns (instance, oww_model_cls)."""
+        instance = self._make_instance()
+        mock_oww = self._mock_openwakeword()
+        if oww_model_cls is None:
+            oww_model_cls = Mock()
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "openwakeword": mock_oww,
+                    "openwakeword.model": Mock(Model=oww_model_cls),
+                    "openwakeword.utils": mock_oww.utils,
+                },
+            ),
+            patch("src.models.oww.os.path.exists", return_value=True),
+            patch("src.models.oww.os.makedirs"),
+            patch("src.models.oww.sys") as mock_sys,
+        ):
+            mock_sys.platform = platform
+            setup_oww(instance, oww_model_path=model_path, oww_threshold=threshold)
+        return instance, oww_model_cls
+
+    def test_setup_oww_loads_local_model(self):
         """Local .onnx path exists -> OWWModel created with correct args."""
+        mock_cls = Mock()
+        instance, oww_model_cls = self._call_setup_oww("/tmp/my_wakeword.onnx", oww_model_cls=mock_cls)
+        assert instance.oww_model == mock_cls.return_value
+        mock_cls.assert_called_once()
+        assert mock_cls.call_args[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
+        assert mock_cls.call_args[1]["inference_framework"] == "onnx"
 
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "openwakeword": mock_oww,
-                "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                "openwakeword.utils": mock_oww.utils,
-            },
-        ):
-            setup_oww(
-                instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5
-            )
-
-        assert instance.oww_model == mock_oww_model_cls.return_value
-        mock_oww_model_cls.assert_called_once()
-        call_kwargs = mock_oww_model_cls.call_args
-        assert call_kwargs[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
-        assert call_kwargs[1]["inference_framework"] == "onnx"
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_derives_model_name(self, mock_makedirs, mock_exists):
+    def test_setup_oww_derives_model_name(self):
         """Path /tmp/my_wakeword.onnx -> oww_model_name == 'my_wakeword'."""
-
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "openwakeword": mock_oww,
-                "openwakeword.model": Mock(Model=Mock()),
-                "openwakeword.utils": mock_oww.utils,
-            },
-        ):
-            setup_oww(
-                instance, oww_model_path="/tmp/my_wakeword.onnx", oww_threshold=0.5
-            )
-
+        instance, _ = self._call_setup_oww("/tmp/my_wakeword.onnx")
         assert instance.oww_model_name == "my_wakeword"
 
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_default_threshold(self, mock_makedirs, mock_exists):
-        """oww_threshold=0.5 (the default) -> instance.oww_threshold == 0.5."""
-
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "openwakeword": mock_oww,
-                "openwakeword.model": Mock(Model=Mock()),
-                "openwakeword.utils": mock_oww.utils,
-            },
-        ):
-            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
-
+    def test_setup_oww_default_threshold(self):
+        """oww_threshold=0.5 -> instance.oww_threshold == 0.5."""
+        instance, _ = self._call_setup_oww("/tmp/model.onnx", threshold=0.5)
         assert instance.oww_threshold == 0.5
 
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_custom_threshold(self, mock_makedirs, mock_exists):
+    def test_setup_oww_custom_threshold(self):
         """oww_threshold=0.8 -> instance.oww_threshold == 0.8."""
-
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "openwakeword": mock_oww,
-                "openwakeword.model": Mock(Model=Mock()),
-                "openwakeword.utils": mock_oww.utils,
-            },
-        ):
-            setup_oww(
-                instance,
-                oww_model_path="/tmp/model.onnx",
-                oww_threshold=0.8,
-            )
-
+        instance, _ = self._call_setup_oww("/tmp/model.onnx", threshold=0.8)
         assert instance.oww_threshold == 0.8
 
     @patch("src.models.oww.download_file")
@@ -268,146 +221,41 @@ class TestSetupOww:
 
         mock_oww.utils.download_file.assert_not_called()
 
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_speex_linux_only(self, mock_makedirs, mock_exists):
+    def test_setup_oww_speex_linux_only(self):
         """enable_speex_noise_suppression matches sys.platform == 'linux'."""
+        mock_cls = Mock()
+        self._call_setup_oww("/tmp/model.onnx", platform="linux", oww_model_cls=mock_cls)
+        assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is True
 
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
+        mock_cls.reset_mock()
+        self._call_setup_oww("/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls)
+        assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is False
 
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "linux"
-            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
-
-            call_kwargs = mock_oww_model_cls.call_args[1]
-            assert call_kwargs["enable_speex_noise_suppression"] is True
-
-        mock_oww_model_cls.reset_mock()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "darwin"
-            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
-
-            call_kwargs = mock_oww_model_cls.call_args[1]
-            assert call_kwargs["enable_speex_noise_suppression"] is False
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_raises_for_invalid_extension(self, mock_makedirs, mock_exists):
+    def test_setup_oww_raises_for_invalid_extension(self):
         """Non-.onnx/.tflite extension raises ValueError."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
+        with pytest.raises(ValueError, match="file extension must be .onnx or .tflite"):
+            self._call_setup_oww("/tmp/model.pt")
 
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=Mock()),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            pytest.raises(ValueError, match="file extension must be .onnx or .tflite"),
-        ):
-            setup_oww(instance, oww_model_path="/tmp/model.pt", oww_threshold=0.5)
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_tflite_raises_on_non_linux(self, mock_makedirs, mock_exists):
+    def test_setup_oww_tflite_raises_on_non_linux(self):
         """tflite model on non-Linux raises ValueError."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
+        with pytest.raises(ValueError, match="tflite models are only supported on Linux"):
+            self._call_setup_oww("/tmp/model.tflite", platform="darwin")
 
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=Mock()),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-            pytest.raises(ValueError, match="tflite models are only supported on Linux"),
-        ):
-            mock_sys.platform = "darwin"
-            setup_oww(instance, oww_model_path="/tmp/model.tflite", oww_threshold=0.5)
+    def test_setup_oww_tflite_uses_tflite_framework_on_linux(self):
+        """tflite model on Linux passes inference_framework='tflite'."""
+        mock_cls = Mock()
+        self._call_setup_oww("/tmp/model.tflite", platform="linux", oww_model_cls=mock_cls)
+        assert mock_cls.call_args[1]["inference_framework"] == "tflite"
 
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_tflite_uses_tflite_framework_on_linux(self, mock_makedirs, mock_exists):
-        """tflite model on Linux uses inference_framework='tflite'."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "linux"
-            setup_oww(instance, oww_model_path="/tmp/model.tflite", oww_threshold=0.5)
-
-        call_kwargs = mock_oww_model_cls.call_args[1]
-        assert call_kwargs["inference_framework"] == "tflite"
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_onnx_uses_onnx_framework(self, mock_makedirs, mock_exists):
-        """onnx model uses inference_framework='onnx'."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "linux"
-            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
-
-        call_kwargs = mock_oww_model_cls.call_args[1]
-        assert call_kwargs["inference_framework"] == "onnx"
+    def test_setup_oww_onnx_uses_onnx_framework(self):
+        """onnx model passes inference_framework='onnx'."""
+        mock_cls = Mock()
+        self._call_setup_oww("/tmp/model.onnx", oww_model_cls=mock_cls)
+        assert mock_cls.call_args[1]["inference_framework"] == "onnx"
 
 
-class TestOwwRunInference:
-    """Tests for oww_run_inference()"""
+class TestOwwCheckForWakeWord:
+    """Tests for oww_check_for_wake_word()"""
 
     def _make_instance(self, threshold=0.5, model_name="okay_gambit"):
         instance = Mock()
@@ -416,17 +264,17 @@ class TestOwwRunInference:
         instance.oww_model_name = model_name
         return instance
 
-    def _make_segment(self, audio_bytes=b""):
-        seg = _SpeechSegment()
-        seg.oww_audio_buffer.extend(audio_bytes)
-        return seg
+    def _make_buffer(self, audio_bytes=b""):
+        buf = bytearray()
+        buf.extend(audio_bytes)
+        return buf
 
     def test_returns_false_when_buffer_too_small(self):
         """Buffer smaller than OWW_CHUNK_SIZE -> returns False, no inference."""
         instance = self._make_instance()
-        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE - 1))
+        buf = self._make_buffer(b"\x00" * (OWW_CHUNK_SIZE - 1))
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is False
         instance.oww_model.predict.assert_not_called()
@@ -434,9 +282,9 @@ class TestOwwRunInference:
     def test_returns_false_when_buffer_empty(self):
         """Empty buffer -> returns False immediately."""
         instance = self._make_instance()
-        seg = self._make_segment()
+        buf = self._make_buffer()
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is False
         instance.oww_model.predict.assert_not_called()
@@ -445,9 +293,9 @@ class TestOwwRunInference:
         """Score >= threshold -> returns True."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE)
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is True
 
@@ -455,9 +303,9 @@ class TestOwwRunInference:
         """Score < threshold -> returns False."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE)
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is False
 
@@ -465,9 +313,9 @@ class TestOwwRunInference:
         """Model name missing from prediction dict -> score defaults to 0.0."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"other_model": 0.9}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE)
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is False
 
@@ -475,9 +323,9 @@ class TestOwwRunInference:
         """Score == threshold -> returns True."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.5}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE)
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is True
 
@@ -485,29 +333,29 @@ class TestOwwRunInference:
         """Buffer with 2x OWW_CHUNK_SIZE -> predict called twice."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE * 2))
+        buf = self._make_buffer(b"\x00" * (OWW_CHUNK_SIZE * 2))
 
-        oww_run_inference(instance, seg)
+        oww_check_for_wake_word(instance, buf)
 
         assert instance.oww_model.predict.call_count == 2
 
     def test_consumed_bytes_removed_from_buffer(self):
-        """Processed bytes are deleted from oww_audio_buffer."""
+        """Processed bytes are deleted from the buffer."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE + b"\x01" * 100)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE + b"\x01" * 100)
 
-        oww_run_inference(instance, seg)
+        oww_check_for_wake_word(instance, buf)
 
-        assert len(seg.oww_audio_buffer) == 100
+        assert len(buf) == 100
 
     def test_stops_early_on_detection(self):
         """Returns True on first detection without draining remaining buffer."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
-        seg = self._make_segment(b"\x00" * (OWW_CHUNK_SIZE * 3))
+        buf = self._make_buffer(b"\x00" * (OWW_CHUNK_SIZE * 3))
 
-        result = oww_run_inference(instance, seg)
+        result = oww_check_for_wake_word(instance, buf)
 
         assert result is True
         assert instance.oww_model.predict.call_count == 1
@@ -516,9 +364,9 @@ class TestOwwRunInference:
         """Audio bytes are converted to int16 numpy array before predict()."""
         instance = self._make_instance(threshold=0.5)
         instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = self._make_segment(b"\x00" * OWW_CHUNK_SIZE)
+        buf = self._make_buffer(b"\x00" * OWW_CHUNK_SIZE)
 
-        oww_run_inference(instance, seg)
+        oww_check_for_wake_word(instance, buf)
 
         call_args = instance.oww_model.predict.call_args[0]
         audio_array = call_args[0]
@@ -527,66 +375,3 @@ class TestOwwRunInference:
         assert len(audio_array) == OWW_CHUNK_SIZE // 2
 
 
-class TestOwwProcessVadFrame:
-    """Tests for oww_process_vad_frame()"""
-
-    def _make_instance(self, threshold=0.5, model_name="okay_gambit"):
-        instance = Mock()
-        instance.logger = Mock()
-        instance.oww_threshold = threshold
-        instance.oww_model_name = model_name
-        return instance
-
-    def test_skips_when_already_detected(self):
-        """oww_detected=True -> frame not added to buffer, no inference."""
-        instance = self._make_instance()
-        seg = _SpeechSegment()
-        seg.oww_detected = True
-
-        oww_process_vad_frame(instance, seg, b"\x00" * 100)
-
-        assert len(seg.oww_audio_buffer) == 0
-        instance.oww_model.predict.assert_not_called()
-
-    def test_appends_frame_to_buffer(self):
-        """Frame is added to oww_audio_buffer."""
-        instance = self._make_instance()
-        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = _SpeechSegment()
-
-        frame = b"\x01" * 100
-        oww_process_vad_frame(instance, seg, frame)
-
-        assert seg.oww_audio_buffer[:100] == bytearray(frame)
-
-    def test_sets_oww_detected_on_detection(self):
-        """When inference returns True, oww_detected is set to True."""
-        instance = self._make_instance(threshold=0.5)
-        instance.oww_model.predict.return_value = {"okay_gambit": 0.9}
-        seg = _SpeechSegment()
-        seg.oww_audio_buffer.extend(b"\x00" * OWW_CHUNK_SIZE)
-
-        oww_process_vad_frame(instance, seg, b"\x00" * 100)
-
-        assert seg.oww_detected is True
-
-    def test_does_not_set_detected_below_threshold(self):
-        """Score below threshold -> oww_detected stays False."""
-        instance = self._make_instance(threshold=0.5)
-        instance.oww_model.predict.return_value = {"okay_gambit": 0.1}
-        seg = _SpeechSegment()
-        seg.oww_audio_buffer.extend(b"\x00" * OWW_CHUNK_SIZE)
-
-        oww_process_vad_frame(instance, seg, b"\x00" * 100)
-
-        assert seg.oww_detected is False
-
-    def test_no_inference_when_buffer_below_chunk_size(self):
-        """Frame added but buffer not large enough -> predict not called."""
-        instance = self._make_instance()
-        seg = _SpeechSegment()
-
-        oww_process_vad_frame(instance, seg, b"\x00" * 100)
-
-        instance.oww_model.predict.assert_not_called()
-        assert seg.oww_detected is False

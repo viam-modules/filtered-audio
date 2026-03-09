@@ -1,8 +1,11 @@
+import json
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from src.models.vosk import (
     get_vosk_model,
     setup_vosk,
+    vosk_check_for_wake_word,
+    vosk_process_segment,
     DEFAULT_VOSK_MODEL,
     _get_bundled_models_dir,
     _extract_vosk_model,
@@ -239,101 +242,64 @@ class TestSetupVosk:
         instance.wake_words = wake_words if wake_words is not None else ["robot"]
         return instance
 
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_loads_model(self, mock_get, mock_vosk_model, mock_recognizer):
+    def _call_setup_vosk(self, wake_words=None, **kwargs):
+        """Run setup_vosk with mocked Vosk deps. Returns instance with _mock_get, _mock_vosk_model, _mock_recognizer attached."""
+        instance = self._make_instance(wake_words=wake_words)
+        with (
+            patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model") as mock_get,
+            patch("src.models.vosk.VoskModel") as mock_vosk_model,
+            patch("src.models.vosk.KaldiRecognizer") as mock_recognizer,
+        ):
+            setup_vosk(instance, **kwargs)
+            instance._mock_get = mock_get
+            instance._mock_vosk_model = mock_vosk_model
+            instance._mock_recognizer = mock_recognizer
+        return instance
+
+    def test_setup_vosk_loads_model(self):
         """get_vosk_model called, VoskModel created with returned path."""
-        instance = self._make_instance()
-        setup_vosk(instance)
+        instance = self._call_setup_vosk()
+        instance._mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
+        instance._mock_vosk_model.assert_called_once_with("/tmp/vosk-model")
+        assert instance.vosk_model == instance._mock_vosk_model.return_value
 
-        mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
-        mock_vosk_model.assert_called_once_with("/tmp/vosk-model")
-        assert instance.vosk_model == mock_vosk_model.return_value
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_vosk_model_name(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_default_vosk_model_name(self):
         """No vosk_model provided -> uses DEFAULT_VOSK_MODEL."""
-        instance = self._make_instance()
-        setup_vosk(instance)
+        instance = self._call_setup_vosk()
+        instance._mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
 
-        mock_get.assert_called_once_with(DEFAULT_VOSK_MODEL, instance.logger)
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_vosk_model_name(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_custom_vosk_model_name(self):
         """Custom vosk_model passed to get_vosk_model."""
-        instance = self._make_instance()
-        setup_vosk(instance, vosk_model="vosk-model-en-us-0.22")
+        instance = self._call_setup_vosk(vosk_model="vosk-model-en-us-0.22")
+        instance._mock_get.assert_called_once_with("vosk-model-en-us-0.22", instance.logger)
 
-        mock_get.assert_called_once_with("vosk-model-en-us-0.22", instance.logger)
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_grammar_recognizer(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_creates_grammar_recognizer(self):
         """use_grammar=True + wake_words -> KaldiRecognizer called with grammar JSON."""
-        instance = self._make_instance(wake_words=["robot", "computer"])
-        setup_vosk(instance, use_grammar=True)
-
-        args = mock_recognizer.call_args[0]
-        assert args[0] == mock_vosk_model.return_value
+        instance = self._call_setup_vosk(wake_words=["robot", "computer"], use_grammar=True)
+        args = instance._mock_recognizer.call_args[0]
+        assert args[0] == instance._mock_vosk_model.return_value
         assert args[1] == 16000
-        # Third arg should be grammar JSON containing the wake words
-        import json
-
         grammar = json.loads(args[2])
         assert "robot" in grammar
         assert "computer" in grammar
 
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_plain_recognizer(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_creates_plain_recognizer(self):
         """use_grammar=False -> KaldiRecognizer called without grammar."""
-        instance = self._make_instance()
-        setup_vosk(instance, use_grammar=False)
-
-        args = mock_recognizer.call_args[0]
-        assert len(args) == 2  # No grammar argument
-        assert args[0] == mock_vosk_model.return_value
+        instance = self._call_setup_vosk(use_grammar=False)
+        args = instance._mock_recognizer.call_args[0]
+        assert len(args) == 2
+        assert args[0] == instance._mock_vosk_model.return_value
         assert args[1] == 16000
 
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_creates_plain_recognizer_no_wake_words(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_creates_plain_recognizer_no_wake_words(self):
         """use_grammar=True but empty wake_words -> no grammar."""
-        instance = self._make_instance(wake_words=[])
-        setup_vosk(instance, use_grammar=True)
+        instance = self._call_setup_vosk(wake_words=[], use_grammar=True)
+        assert len(instance._mock_recognizer.call_args[0]) == 2
 
-        args = mock_recognizer.call_args[0]
-        assert len(args) == 2  # No grammar argument
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_enables_word_level_scores(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_enables_word_level_scores(self):
         """recognizer.SetWords(True) called."""
-        instance = self._make_instance()
-        setup_vosk(instance)
-
-        mock_recognizer.return_value.SetWords.assert_called_once_with(True)
+        instance = self._call_setup_vosk()
+        instance._mock_recognizer.return_value.SetWords.assert_called_once_with(True)
 
     @patch("src.models.vosk.FuzzyWakeWordMatcher")
     @patch("src.models.vosk.KaldiRecognizer")
@@ -345,66 +311,227 @@ class TestSetupVosk:
         """fuzzy_threshold=3 -> FuzzyWakeWordMatcher(threshold=3) stored on instance."""
         instance = self._make_instance()
         setup_vosk(instance, fuzzy_threshold=3)
-
         mock_fuzzy.assert_called_once_with(threshold=3)
         assert instance.fuzzy_matcher == mock_fuzzy.return_value
 
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_no_fuzzy_matcher_by_default(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_no_fuzzy_matcher_by_default(self):
         """No fuzzy_threshold -> instance.fuzzy_matcher is None."""
-        instance = self._make_instance()
-        setup_vosk(instance)
+        assert self._call_setup_vosk().fuzzy_matcher is None
 
-        assert instance.fuzzy_matcher is None
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_use_grammar(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_default_use_grammar(self):
         """Default use_grammar is True."""
-        instance = self._make_instance()
-        setup_vosk(instance)
+        assert self._call_setup_vosk().use_grammar is True
 
-        assert instance.use_grammar is True
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_use_grammar_false(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_custom_use_grammar_false(self):
         """use_grammar=False when provided."""
-        instance = self._make_instance()
-        setup_vosk(instance, use_grammar=False)
+        assert self._call_setup_vosk(use_grammar=False).use_grammar is False
 
-        assert instance.use_grammar is False
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_default_grammar_confidence(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_default_grammar_confidence(self):
         """Default grammar_confidence is 0.7."""
-        instance = self._make_instance()
-        setup_vosk(instance)
+        assert self._call_setup_vosk().grammar_confidence == 0.7
 
-        assert instance.grammar_confidence == 0.7
-
-    @patch("src.models.vosk.KaldiRecognizer")
-    @patch("src.models.vosk.VoskModel")
-    @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_custom_grammar_confidence(
-        self, mock_get, mock_vosk_model, mock_recognizer
-    ):
+    def test_setup_vosk_custom_grammar_confidence(self):
         """Custom grammar_confidence when provided."""
-        instance = self._make_instance()
-        setup_vosk(instance, grammar_confidence=0.85)
+        assert self._call_setup_vosk(grammar_confidence=0.85).grammar_confidence == 0.85
 
-        assert instance.grammar_confidence == 0.85
+
+class TestVoskCheckForWakeWord:
+    def _make_instance(self, wake_words=None, use_grammar=True, fuzzy_matcher=None):
+        wake_word_filter = Mock()
+        wake_word_filter.wake_words = wake_words or ["robot"]
+        wake_word_filter.fuzzy_matcher = fuzzy_matcher
+        wake_word_filter.use_grammar = use_grammar
+        wake_word_filter.logger = Mock()
+        mock_rec = Mock()
+        mock_rec.AcceptWaveform.return_value = True
+        wake_word_filter.recognizer = mock_rec
+        return wake_word_filter, mock_rec
+
+    def test_handles_multiple_wake_words(self):
+        """Test check_for_wake_word works with multiple wake words"""
+        wake_word_filter, mock_rec = self._make_instance(
+            wake_words=["robot", "computer", "hey assistant"]
+        )
+
+        mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+    def test_respects_word_boundaries(self):
+        """Test check_for_wake_word doesn't match substrings"""
+        wake_word_filter, mock_rec = self._make_instance()
+
+        mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
+
+    def test_with_grammar_mode(self):
+        """Test check_for_wake_word works in grammar mode"""
+        wake_word_filter, mock_rec = self._make_instance(
+            wake_words=["robot", "computer"], use_grammar=True
+        )
+        mock_rec.FinalResult.return_value = '{"text": "robot"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+    def test_without_grammar_mode(self):
+        """Test check_for_wake_word uses full transcription and searches for wake word"""
+        wake_word_filter, mock_rec = self._make_instance(use_grammar=False)
+        mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+    def test_no_grammar_no_match(self):
+        """Test check_for_wake_word returns False when wake word not in transcription"""
+        wake_word_filter, mock_rec = self._make_instance(use_grammar=False)
+        mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
+
+    def test_handles_vosk_errors(self):
+        """Test check_for_wake_word returns False on Vosk errors"""
+        wake_word_filter, mock_rec = self._make_instance()
+        mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
+        wake_word_filter.logger.error.assert_called_once()
+
+    def test_detects_wake_word_anywhere(self):
+        """Test check_for_wake_word returns True when wake word is anywhere in audio"""
+        wake_word_filter, mock_rec = self._make_instance()
+
+        mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
+
+        mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
+
+        mock_rec.FinalResult.return_value = '{"text": ""}'
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
+
+
+class TestVoskProcessSegment:
+    def _make_instance(self, shutting_down=False):
+        wake_word_filter = Mock()
+        wake_word_filter.is_shutting_down = shutting_down
+        wake_word_filter.logger = Mock()
+        wake_word_filter.executor = Mock()
+        return wake_word_filter
+
+    @pytest.mark.asyncio
+    async def test_skips_when_shutting_down(self):
+        """Test returns early if shutting down"""
+        wake_word_filter = self._make_instance(shutting_down=True)
+        chunks = []
+        async for chunk in vosk_process_segment(
+            wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)
+        ):
+            chunks.append(chunk)
+
+        assert len(chunks) == 0
+        wake_word_filter.logger.debug.assert_called_with(
+            "Skipping speech processing due to shutdown"
+        )
+
+    @pytest.mark.asyncio
+    async def test_handles_executor_shutdown_error(self):
+        """Test handles RuntimeError during shutdown gracefully"""
+        wake_word_filter = self._make_instance()
+
+        async def mock_run_in_executor(*args):
+            raise RuntimeError("cannot schedule new futures after shutdown")
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = mock_run_in_executor
+            chunks = []
+            async for chunk in vosk_process_segment(
+                wake_word_filter, [Mock()], bytearray(b"\x00" * 1000)
+            ):
+                chunks.append(chunk)
+
+            assert len(chunks) == 0
+            wake_word_filter.logger.debug.assert_called_with(
+                "Executor shutdown during processing, ignoring"
+            )
+
+    @pytest.mark.asyncio
+    async def test_yields_chunks_on_wake_word(self):
+        """Test yields chunks when wake word detected"""
+        wake_word_filter = self._make_instance()
+        mock_chunk1, mock_chunk2 = Mock(), Mock()
+
+        async def mock_run_in_executor(executor, func, *args):
+            return True
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = mock_run_in_executor
+            with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
+                empty_chunk = Mock()
+                empty_chunk.audio = Mock()
+                mock_audio_chunk_class.return_value = empty_chunk
+
+                chunks = []
+                async for chunk in vosk_process_segment(
+                    wake_word_filter, [mock_chunk1, mock_chunk2], bytearray(b"\x00" * 1000)
+                ):
+                    chunks.append(chunk)
+
+                assert len(chunks) == 3
+                assert chunks[0] == mock_chunk1
+                assert chunks[1] == mock_chunk2
+                assert chunks[2] == empty_chunk
+
+    @pytest.mark.asyncio
+    async def test_yields_empty_chunk_at_end(self):
+        """Test yields an empty AudioChunk at the end to signal segment end"""
+        wake_word_filter = self._make_instance()
+        mock_chunk = Mock()
+        mock_chunk.audio = Mock()
+        mock_chunk.audio.audio_data = b"\x00" * 100
+
+        async def mock_run_in_executor(executor, func, *args):
+            return True
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = mock_run_in_executor
+            with patch("src.models.vosk.AudioChunk") as mock_audio_chunk_class:
+                empty_chunk = Mock()
+                empty_chunk.audio = Mock()
+                mock_audio_chunk_class.return_value = empty_chunk
+
+                chunks = []
+                async for chunk in vosk_process_segment(
+                    wake_word_filter, [mock_chunk], bytearray(b"\x00" * 1000)
+                ):
+                    chunks.append(chunk)
+
+                assert len(chunks) == 2
+                assert chunks[0] == mock_chunk
+                assert chunks[1] == empty_chunk
+
+    @pytest.mark.asyncio
+    async def test_yields_nothing_when_no_wake_word(self):
+        """Test yields nothing when wake word not detected"""
+        wake_word_filter = self._make_instance()
+
+        async def mock_run_in_executor(executor, func, *args):
+            return False
+
+        with patch("asyncio.get_running_loop") as mock_loop:
+            mock_loop.return_value.run_in_executor = mock_run_in_executor
+            chunks = []
+            async for chunk in vosk_process_segment(
+                wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)
+            ):
+                chunks.append(chunk)
+
+            assert len(chunks) == 0
