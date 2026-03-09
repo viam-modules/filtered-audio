@@ -180,29 +180,12 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError("source_microphone attribute must be a string")
         deps.append(mic)
 
-        wake_words: Any = attrs.get("wake_words", [])
-        _engine = attrs.get("detection_engine", "vosk")
-        if _engine != "openwakeword" and not wake_words:
+        # Validate detection_engine
+        detection_engine: Any = attrs.get("detection_engine", "vosk")
+        if detection_engine not in ("vosk", "openwakeword"):
             raise ValueError(
-                "wake_words is required when using the vosk detection engine"
+                f"detection_engine must be 'vosk' or 'openwakeword', got '{detection_engine}'"
             )
-
-        # Validate wake_words type if provided
-        if wake_words:
-            if isinstance(wake_words, str):
-                # Single string is valid
-                pass
-            elif isinstance(wake_words, list):
-                # List must contain only strings
-                for word in wake_words:
-                    if not isinstance(word, str):
-                        raise ValueError(
-                            f"All wake_words must be strings, got {type(word).__name__}"
-                        )
-            else:
-                raise ValueError(
-                    f"wake_words must be a string or list of strings, got {type(wake_words).__name__}"
-                )
 
         # Validate VAD aggressiveness
         vad_aggressiveness: Any = attrs.get("vad_aggressiveness", None)
@@ -216,17 +199,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError(
                 f"vad_aggressiveness must be 0-3, got {vad_aggressiveness}"
             )
-
-        # Validate fuzzy threshold
-        fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
-        if fuzzy_threshold is not None:
-            if (
-                not isinstance(fuzzy_threshold, (int, float))
-                or fuzzy_threshold % 1 != 0
-            ):
-                raise ValueError("fuzzy_threshold must be a whole number")
-        if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
-            raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
 
         # Validate silence_duration_ms
         silence_duration_ms: Any = attrs.get("silence_duration_ms", None)
@@ -247,57 +219,54 @@ class WakeWordFilter(AudioIn, EasyResource):
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
 
-        # Validate use_grammar
-        use_grammar: Any = attrs.get("use_grammar", None)
-        if use_grammar is not None:
-            if not isinstance(use_grammar, bool):
-                raise ValueError("use_grammar must be a boolean")
-
-        # Validate grammar_confidence
-        grammar_confidence: Any = attrs.get("vosk_grammar_confidence", None)
-        if grammar_confidence is not None:
-            if not isinstance(grammar_confidence, (int, float)):
-                raise ValueError("vosk_grammar_confidence must be a number")
-            if grammar_confidence < 0.0 or grammar_confidence > 1.0:
+        # Validate Vosk-specific config
+        if detection_engine == "vosk":
+            wake_words: Any = attrs.get("wake_words", [])
+            if not wake_words:
                 raise ValueError(
-                    f"vosk_grammar_confidence must be 0.0-1.0, got {grammar_confidence}"
+                    "wake_words is required when using the vosk detection engine"
                 )
 
-        # Validate detection_engine
-        detection_engine: Any = attrs.get("detection_engine", "vosk")
-        if detection_engine not in ("vosk", "openwakeword"):
-            raise ValueError(
-                f"detection_engine must be 'vosk' or 'openwakeword', got '{detection_engine}'"
-            )
-
-        # Validate openWakeWord-specific config
-        if detection_engine == "openwakeword":
-            oww_model_path: Any = attrs.get("oww_model_path", "")
-            if not isinstance(oww_model_path, str) or not oww_model_path:
-                raise ValueError(
-                    "oww_model_path must be a non-empty string"
-                    if not isinstance(oww_model_path, str)
-                    else "oww_model_path is required when detection_engine is 'openwakeword'"
-                )
-
-            oww_threshold: Any = attrs.get("oww_threshold", None)
-            if oww_threshold is not None:
-                if not isinstance(oww_threshold, (int, float)):
-                    raise ValueError("oww_threshold must be a number")
-                if oww_threshold < 0.0 or oww_threshold > 1.0:
+            if wake_words:
+                if isinstance(wake_words, str):
+                    pass
+                elif isinstance(wake_words, list):
+                    for word in wake_words:
+                        if not isinstance(word, str):
+                            raise ValueError(
+                                f"All wake_words must be strings, got {type(word).__name__}"
+                            )
+                else:
                     raise ValueError(
-                        f"oww_threshold must be 0.0-1.0, got {oww_threshold}"
+                        f"wake_words must be a string or list of strings, got {type(wake_words).__name__}"
                     )
 
-        # Validate detection_engine
-        detection_engine: Any = attrs.get("detection_engine", "vosk")
-        if detection_engine not in ("vosk", "openwakeword"):
-            raise ValueError(
-                f"detection_engine must be 'vosk' or 'openwakeword', got '{detection_engine}'"
-            )
+            fuzzy_threshold: Any = attrs.get("fuzzy_threshold", None)
+            if fuzzy_threshold is not None:
+                if (
+                    not isinstance(fuzzy_threshold, (int, float))
+                    or fuzzy_threshold % 1 != 0
+                ):
+                    raise ValueError("fuzzy_threshold must be a whole number")
+            if fuzzy_threshold is not None and not 0 <= fuzzy_threshold <= 5:
+                raise ValueError(f"fuzzy_threshold must be 0-5, got {fuzzy_threshold}")
+
+            use_grammar: Any = attrs.get("use_grammar", None)
+            if use_grammar is not None:
+                if not isinstance(use_grammar, bool):
+                    raise ValueError("use_grammar must be a boolean")
+
+            grammar_confidence: Any = attrs.get("vosk_grammar_confidence", None)
+            if grammar_confidence is not None:
+                if not isinstance(grammar_confidence, (int, float)):
+                    raise ValueError("vosk_grammar_confidence must be a number")
+                if grammar_confidence < 0.0 or grammar_confidence > 1.0:
+                    raise ValueError(
+                        f"vosk_grammar_confidence must be 0.0-1.0, got {grammar_confidence}"
+                    )
 
         # Validate openWakeWord-specific config
-        if detection_engine == "openwakeword":
+        elif detection_engine == "openwakeword":
             oww_model_path: Any = attrs.get("oww_model_path", "")
             if not isinstance(oww_model_path, str) or not oww_model_path:
                 raise ValueError(
