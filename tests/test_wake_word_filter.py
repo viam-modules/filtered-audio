@@ -1277,10 +1277,6 @@ async def test_oww_resets_model_after_segment():
     wf.oww_model.reset.assert_called()
 
 
-# ---------------------------------------------------------------------------
-# _process_vad_frame state machine tests
-# ---------------------------------------------------------------------------
-
 
 def make_vad_filter(detection_engine="vosk"):
     """Minimal WakeWordFilter mock for _process_vad_frame tests."""
@@ -1500,11 +1496,6 @@ class TestProcessVadFrame:
         assert complete is False
 
 
-# ---------------------------------------------------------------------------
-# _finalize_segment tests
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_finalize_segment_oww_false_positive_resets_model():
     """OWW segment below min_speech_frames -> oww_model.reset() called, nothing yielded."""
@@ -1552,11 +1543,6 @@ async def test_finalize_segment_resets_speech_segment_on_false_positive():
     assert seg.speech_frames == 0
     assert len(seg.speech_buffer) == 0
     assert len(seg.speech_chunk_buffer) == 0
-
-
-# ---------------------------------------------------------------------------
-# get_audio end-of-stream and pause-with-buffer tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

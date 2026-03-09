@@ -408,6 +408,7 @@ class TestSetupVosk:
         """Custom grammar_confidence when provided."""
         instance = self._make_instance()
         setup_vosk(instance, grammar_confidence=0.85)
+        assert instance.grammar_confidence == 0.85
 
 
 class TestVoskCheckForWakeWord:
