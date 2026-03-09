@@ -429,23 +429,23 @@ class TestVoskCheckForWakeWord:
         )
 
         mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "computer show me"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "hey assistant what time"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
     def test_respects_word_boundaries(self):
         """Test check_for_wake_word doesn't match substrings"""
         wake_word_filter, mock_rec = self._make_instance()
 
         mock_rec.FinalResult.return_value = '{"text": "robot turn on"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "robotics is cool"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is False
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
 
     def test_with_grammar_mode(self):
         """Test check_for_wake_word works in grammar mode"""
@@ -453,25 +453,25 @@ class TestVoskCheckForWakeWord:
             wake_words=["robot", "computer"], use_grammar=True
         )
         mock_rec.FinalResult.return_value = '{"text": "robot"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
     def test_without_grammar_mode(self):
         """Test check_for_wake_word uses full transcription and searches for wake word"""
         wake_word_filter, mock_rec = self._make_instance(use_grammar=False)
         mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
     def test_no_grammar_no_match(self):
         """Test check_for_wake_word returns False when wake word not in transcription"""
         wake_word_filter, mock_rec = self._make_instance(use_grammar=False)
         mock_rec.FinalResult.return_value = '{"text": "hello how are you"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is False
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
 
     def test_handles_vosk_errors(self):
         """Test check_for_wake_word returns False on Vosk errors"""
         wake_word_filter, mock_rec = self._make_instance()
         mock_rec.AcceptWaveform.side_effect = Exception("Vosk error")
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is False
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
         wake_word_filter.logger.error.assert_called_once()
 
     def test_detects_wake_word_anywhere(self):
@@ -479,19 +479,19 @@ class TestVoskCheckForWakeWord:
         wake_word_filter, mock_rec = self._make_instance()
 
         mock_rec.FinalResult.return_value = '{"text": "robot turn on the lights"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "hey robot turn on the lights"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "turn on the lights robot"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is True
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
         mock_rec.FinalResult.return_value = '{"text": "hello there how are you"}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is False
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
 
         mock_rec.FinalResult.return_value = '{"text": ""}'
-        assert vosk_check_for_wake_word(wake_word_filter, b"\\x00" * 1000) is False
+        assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is False
 
 
 class TestVoskProcessSegment:
