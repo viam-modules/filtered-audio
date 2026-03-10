@@ -788,7 +788,6 @@ def test_new_handles_missing_microphone_in_dependencies(mock_env):
         WakeWordFilter.new(config, dependencies)
 
 
-
 def test_validate_config_accepts_vosk_engine(mock_env):
     """Test validate_config accepts detection_engine='vosk'"""
     config = Mock()
@@ -1275,7 +1274,6 @@ async def test_oww_resets_model_after_segment():
     await collect_stream(stream)
 
     wf.oww_model.reset.assert_called()
-
 
 
 def make_vad_filter(detection_engine="vosk"):

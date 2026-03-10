@@ -123,5 +123,3 @@ def oww_check_for_wake_word(instance: Any, oww_audio_buffer: bytearray) -> bool:
             )
             return True
     return False
-
-

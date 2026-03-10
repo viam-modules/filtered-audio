@@ -286,7 +286,6 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return deps, []
 
-
     async def _finalize_segment(
         self,
         speech_chunk_buffer: List[AudioChunk],
@@ -378,7 +377,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             speech_segment = _SpeechSegment()
             state = _SpeechState.IDLE
             vad_audio_buffer = bytearray()
-
 
             async for audio_chunk in mic_stream:
                 if self.is_shutting_down:
@@ -551,7 +549,9 @@ class WakeWordFilter(AudioIn, EasyResource):
         if self.detection_engine == "openwakeword":
             if not speech_segment.oww_detected:
                 speech_segment.oww_audio_buffer.extend(frame)
-                speech_segment.oww_detected = oww_check_for_wake_word(self, speech_segment.oww_audio_buffer)
+                speech_segment.oww_detected = oww_check_for_wake_word(
+                    self, speech_segment.oww_audio_buffer
+                )
 
         if state == _SpeechState.IDLE:
             if is_speech:

@@ -246,7 +246,9 @@ class TestSetupVosk:
         """Run setup_vosk with mocked Vosk deps. Returns instance with _mock_get, _mock_vosk_model, _mock_recognizer attached."""
         instance = self._make_instance(wake_words=wake_words)
         with (
-            patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model") as mock_get,
+            patch(
+                "src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model"
+            ) as mock_get,
             patch("src.models.vosk.VoskModel") as mock_vosk_model,
             patch("src.models.vosk.KaldiRecognizer") as mock_recognizer,
         ):
@@ -271,11 +273,15 @@ class TestSetupVosk:
     def test_setup_vosk_custom_vosk_model_name(self):
         """Custom vosk_model passed to get_vosk_model."""
         instance = self._call_setup_vosk(vosk_model="vosk-model-en-us-0.22")
-        instance._mock_get.assert_called_once_with("vosk-model-en-us-0.22", instance.logger)
+        instance._mock_get.assert_called_once_with(
+            "vosk-model-en-us-0.22", instance.logger
+        )
 
     def test_setup_vosk_creates_grammar_recognizer(self):
         """use_grammar=True + wake_words -> KaldiRecognizer called with grammar JSON."""
-        instance = self._call_setup_vosk(wake_words=["robot", "computer"], use_grammar=True)
+        instance = self._call_setup_vosk(
+            wake_words=["robot", "computer"], use_grammar=True
+        )
         args = instance._mock_recognizer.call_args[0]
         assert args[0] == instance._mock_vosk_model.return_value
         assert args[1] == 16000
@@ -481,7 +487,9 @@ class TestVoskProcessSegment:
 
                 chunks = []
                 async for chunk in vosk_process_segment(
-                    wake_word_filter, [mock_chunk1, mock_chunk2], bytearray(b"\x00" * 1000)
+                    wake_word_filter,
+                    [mock_chunk1, mock_chunk2],
+                    bytearray(b"\x00" * 1000),
                 ):
                     chunks.append(chunk)
 
