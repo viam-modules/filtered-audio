@@ -98,7 +98,7 @@ To use `detection_engine: openwakeword` you need a custom wakeword model trained
 
 Once trained, set `oww_model_path` to the local path or a URL pointing to the model file.
 
-Both `.onnx` and `.tflite` model formats are supported.
+Both `.onnx` and `.tflite` model formats are supported. On Raspberry Pi, `.tflite` models are recommended. Note that `.tflite` is only supported on Linux — on macOS, use `.onnx` instead.
 
 ### Fuzzy Wake Word Matching
 
