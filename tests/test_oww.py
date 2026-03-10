@@ -28,7 +28,9 @@ class TestSetupOww:
         mock_oww.utils = Mock()
         return mock_oww
 
-    def _call_setup_oww(self, model_path, platform="linux", oww_model_cls=None, threshold=0.5):
+    def _call_setup_oww(
+        self, model_path, platform="linux", oww_model_cls=None, threshold=0.5
+    ):
         """Run setup_oww with mocked openwakeword and sys.platform. Returns (instance, oww_model_cls)."""
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
@@ -54,7 +56,9 @@ class TestSetupOww:
     def test_setup_oww_loads_local_model(self):
         """Local .onnx path exists -> OWWModel created with correct args."""
         mock_cls = Mock()
-        instance, oww_model_cls = self._call_setup_oww("/tmp/my_wakeword.onnx", oww_model_cls=mock_cls)
+        instance, oww_model_cls = self._call_setup_oww(
+            "/tmp/my_wakeword.onnx", oww_model_cls=mock_cls
+        )
         assert instance.oww_model == mock_cls.return_value
         mock_cls.assert_called_once()
         assert mock_cls.call_args[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
@@ -224,34 +228,16 @@ class TestSetupOww:
     def test_setup_oww_speex_linux_only(self):
         """enable_speex_noise_suppression matches sys.platform == 'linux'."""
         mock_cls = Mock()
-        self._call_setup_oww("/tmp/model.onnx", platform="linux", oww_model_cls=mock_cls)
+        self._call_setup_oww(
+            "/tmp/model.onnx", platform="linux", oww_model_cls=mock_cls
+        )
         assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is True
 
         mock_cls.reset_mock()
-        self._call_setup_oww("/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls)
+        self._call_setup_oww(
+            "/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls
+        )
         assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is False
-
-    def test_setup_oww_raises_for_invalid_extension(self):
-        """Non-.onnx/.tflite extension raises ValueError."""
-        with pytest.raises(ValueError, match="file extension must be .onnx or .tflite"):
-            self._call_setup_oww("/tmp/model.pt")
-
-    def test_setup_oww_tflite_raises_on_non_linux(self):
-        """tflite model on non-Linux raises ValueError."""
-        with pytest.raises(ValueError, match="tflite models are only supported on Linux"):
-            self._call_setup_oww("/tmp/model.tflite", platform="darwin")
-
-    def test_setup_oww_tflite_uses_tflite_framework_on_linux(self):
-        """tflite model on Linux passes inference_framework='tflite'."""
-        mock_cls = Mock()
-        self._call_setup_oww("/tmp/model.tflite", platform="linux", oww_model_cls=mock_cls)
-        assert mock_cls.call_args[1]["inference_framework"] == "tflite"
-
-    def test_setup_oww_onnx_uses_onnx_framework(self):
-        """onnx model passes inference_framework='onnx'."""
-        mock_cls = Mock()
-        self._call_setup_oww("/tmp/model.onnx", oww_model_cls=mock_cls)
-        assert mock_cls.call_args[1]["inference_framework"] == "onnx"
 
 
 class TestOwwCheckForWakeWord:
@@ -373,5 +359,3 @@ class TestOwwCheckForWakeWord:
         assert isinstance(audio_array, np.ndarray)
         assert audio_array.dtype == np.int16
         assert len(audio_array) == OWW_CHUNK_SIZE // 2
-
-

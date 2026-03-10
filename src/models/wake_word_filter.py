@@ -48,6 +48,10 @@ DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
 FRAME_DURATION_MS = 30
 FRAME_SIZE_BYTES = 960
 
+# WebRTC VAD requires 30ms frames: 480 samples * 2 bytes = 960 bytes at 16kHz
+FRAME_DURATION_MS = 30
+FRAME_SIZE_BYTES = 960
+
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -547,6 +551,14 @@ class WakeWordFilter(AudioIn, EasyResource):
             self.logger.error(f"VAD error: {e}")
             is_speech = False
 
+        # OWW receives every frame (including silence) for continuous inference
+        if self.detection_engine == "openwakeword":
+            if not speech_segment.oww_detected:
+                speech_segment.oww_audio_buffer.extend(frame)
+                speech_segment.oww_detected = oww_check_for_wake_word(
+                    self, speech_segment.oww_audio_buffer
+                )
+
         if state == _SpeechState.IDLE:
             if is_speech:
                 self.logger.debug("Speech segment started")
@@ -554,10 +566,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                 speech_segment.speech_frames = 1
                 speech_segment.speech_chunk_buffer.append(audio_chunk)
                 speech_segment.speech_buffer.extend(frame)
-                if self.detection_engine == "openwakeword":
-                    if not speech_segment.oww_detected:
-                        speech_segment.oww_audio_buffer.extend(frame)
-                        speech_segment.oww_detected = oww_check_for_wake_word(self, speech_segment.oww_audio_buffer)
         else:
             # ACTIVE or TRAILING: buffer every frame, but only add the chunk once
             # (one audio_chunk may contain multiple VAD frames)
@@ -567,11 +575,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             ):
                 speech_segment.speech_chunk_buffer.append(audio_chunk)
             speech_segment.speech_buffer.extend(frame)
-
-            if self.detection_engine == "openwakeword":
-                if not speech_segment.oww_detected:
-                    speech_segment.oww_audio_buffer.extend(frame)
-                    speech_segment.oww_detected = oww_check_for_wake_word(self, speech_segment.oww_audio_buffer)
 
             if state == _SpeechState.ACTIVE:
                 if is_speech:

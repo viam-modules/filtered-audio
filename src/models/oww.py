@@ -12,8 +12,12 @@ from typing import Any
 
 import certifi
 import numpy as np
+import numpy as np
 
 from .download import download_file
+
+# OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
+OWW_CHUNK_SIZE = 2560
 
 # OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
 OWW_CHUNK_SIZE = 2560
