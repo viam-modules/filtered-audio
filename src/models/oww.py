@@ -87,9 +87,21 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
     instance.oww_threshold = oww_threshold
 
     instance.logger.debug("Loading OWW model...")
+
+    _, extension = os.path.splitext(oww_model_path)
+
+    if extension not in (".onnx", ".tflite"):
+        raise ValueError(
+            f"oww_model_path file extension must be .onnx or .tflite, got {extension}"
+        )
+    if extension == ".tflite" and sys.platform != "linux":
+        raise ValueError(
+            "tflite models are only supported on Linux. "
+            "Please use an .onnx model instead."
+        )
     instance.oww_model = OWWModel(
         wakeword_models=[oww_model_path],
-        inference_framework="onnx",
+        inference_framework=extension.lstrip("."),
         enable_speex_noise_suppression=(
             sys.platform == "linux"
         ),  # not supported on mac

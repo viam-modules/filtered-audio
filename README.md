@@ -31,7 +31,7 @@ For `openwakeword`:
 {
   "source_microphone": <AUDIO_IN NAME>,
   "detection_engine": "openwakeword",
-  "oww_model_path": "<path or URL to .onnx model>"
+  "oww_model_path": "<path or URL to OWW model>"
 }
 ```
 
@@ -63,7 +63,7 @@ These attributes apply when `detection_engine` is set to `openwakeword`.
 
 | Name          | Type   | Inclusion | Description                |
 |---------------|--------|-----------|----------------------------|
-| `oww_model_path` | string | **Required** | Path or URL to a custom `.onnx` wakeword model file. Local paths and HTTP/HTTPS URLs are supported. URL models are downloaded and cached in `VIAM_MODULE_DATA`.
+| `oww_model_path` | string | **Required** | Path or URL to a custom `.onnx` or `.tflite` wakeword model file. Local paths and HTTP/HTTPS URLs are supported. `. On Raspberry Pi, `.tflite` models are recommended.
 | `oww_threshold` | float | **Optional** | Detection confidence threshold (0.0-1.0). A higher value requires more confidence before triggering, reducing false positives. Default: 0.5
 
 
@@ -94,9 +94,11 @@ The source microphone **must** provide audio in the following format:
 
 ### Training a Custom OpenWakeWord Model
 
-To use `detection_engine: openwakeword` you need a custom `.onnx` model trained on your wake word. Use the [openWakeWord automatic training notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb) to generate one.
+To use `detection_engine: openwakeword` you need a custom wakeword model trained on your wake word. Use the [openWakeWord automatic training notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb) to generate one.
 
-Once trained, set `oww_model_path` to the local path or a URL pointing to the `.onnx` file.
+Once trained, set `oww_model_path` to the local path or a URL pointing to the model file.
+
+Both `.onnx` and `.tflite` model formats are supported. On Raspberry Pi, `.tflite` models are recommended. Note that `.tflite` is only supported on Linux — on macOS, use `.onnx` instead.
 
 ### Fuzzy Wake Word Matching
 
