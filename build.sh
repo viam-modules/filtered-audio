@@ -16,7 +16,7 @@ if [ ! -d "$VOSK_MODELS_DIR/$VOSK_MODEL" ]; then
     unzip -q "/tmp/$VOSK_MODEL.zip" -d "$VOSK_MODELS_DIR"
     rm "/tmp/$VOSK_MODEL.zip"
     echo "Vosk model downloaded to $VOSK_MODELS_DIR/$VOSK_MODEL"
-elsexw
+else
     echo "Vosk model already exists at $VOSK_MODELS_DIR/$VOSK_MODEL"
 fi
 

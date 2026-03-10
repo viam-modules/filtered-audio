@@ -1,12 +1,9 @@
 import json
-import json
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from src.models.vosk import (
     get_vosk_model,
     setup_vosk,
-    vosk_check_for_wake_word,
-    vosk_process_segment,
     vosk_check_for_wake_word,
     vosk_process_segment,
     DEFAULT_VOSK_MODEL,

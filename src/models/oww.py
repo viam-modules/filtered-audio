@@ -12,12 +12,8 @@ from typing import Any
 
 import certifi
 import numpy as np
-import numpy as np
 
 from .download import download_file
-
-# OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
-OWW_CHUNK_SIZE = 2560
 
 # OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
 OWW_CHUNK_SIZE = 2560
@@ -94,16 +90,18 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
 
     _, extension = os.path.splitext(oww_model_path)
 
-    if extension not in ('.onnx', '.tflite'):
-        raise ValueError(f"oww_model_path file extension must be .onnx or .tflite, got {extension}")
-    if extension == '.tflite' and sys.platform != 'linux':
+    if extension not in (".onnx", ".tflite"):
+        raise ValueError(
+            f"oww_model_path file extension must be .onnx or .tflite, got {extension}"
+        )
+    if extension == ".tflite" and sys.platform != "linux":
         raise ValueError(
             "tflite models are only supported on Linux. "
             "Please use an .onnx model instead."
         )
     instance.oww_model = OWWModel(
         wakeword_models=[oww_model_path],
-        inference_framework=extension.lstrip('.'),
+        inference_framework=extension.lstrip("."),
         enable_speex_noise_suppression=(
             sys.platform == "linux"
         ),  # not supported on mac
@@ -137,5 +135,3 @@ def oww_check_for_wake_word(instance: Any, oww_audio_buffer: bytearray) -> bool:
             )
             return True
     return False
-
-

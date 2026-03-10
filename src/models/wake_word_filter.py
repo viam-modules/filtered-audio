@@ -48,10 +48,6 @@ DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
 FRAME_DURATION_MS = 30
 FRAME_SIZE_BYTES = 960
 
-# WebRTC VAD requires 30ms frames: 480 samples * 2 bytes = 960 bytes at 16kHz
-FRAME_DURATION_MS = 30
-FRAME_SIZE_BYTES = 960
-
 
 class WakeWordFilter(AudioIn, EasyResource):
     MODEL: ClassVar[Model] = Model(
@@ -290,7 +286,6 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return deps, []
 
-
     async def _finalize_segment(
         self,
         speech_chunk_buffer: List[AudioChunk],
@@ -382,7 +377,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             speech_segment = _SpeechSegment()
             state = _SpeechState.IDLE
             vad_audio_buffer = bytearray()
-
 
             async for audio_chunk in mic_stream:
                 if self.is_shutting_down:
