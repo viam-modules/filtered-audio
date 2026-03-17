@@ -201,7 +201,7 @@ class TestSetupOww:
         ):
             setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
-        assert mock_oww.utils.download_file.call_count == 2  # one per model
+        assert mock_oww.utils.download_file.call_count == 4  # tflite + onnx per model
 
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_skips_existing_preprocessing_models(self, mock_makedirs):

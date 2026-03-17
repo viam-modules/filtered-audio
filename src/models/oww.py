@@ -26,11 +26,13 @@ def _ensure_preprocessing_models(
     for m in list(openwakeword.FEATURE_MODELS.values()) + list(
         openwakeword.VAD_MODELS.values()
     ):
-        url = m["download_url"].replace(".tflite", ".onnx")
-        fname = url.split("/")[-1]
-        if not os.path.exists(os.path.join(models_dir, fname)):
-            logger.info(f"Downloading OWW preprocessing model: {fname}")
-            openwakeword.utils.download_file(url, models_dir)
+        tflite_url = m["download_url"]
+        onnx_url = tflite_url.replace(".tflite", ".onnx")
+        for url in [tflite_url, onnx_url]:
+            fname = url.split("/")[-1]
+            if not os.path.exists(os.path.join(models_dir, fname)):
+                logger.info(f"Downloading OWW preprocessing model: {fname}")
+                openwakeword.utils.download_file(url, models_dir)
 
 
 def _resolve_oww_model_path(url: str, logger: logging.Logger) -> str:
