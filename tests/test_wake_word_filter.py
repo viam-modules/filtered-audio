@@ -975,6 +975,55 @@ def test_validate_config_rejects_non_number_oww_threshold(mock_env):
         WakeWordFilter.validate_config(config)
 
 
+def test_validate_config_rejects_tflite_on_non_linux(mock_env):
+    """Test validate_config raises error when oww_model_path is .tflite on non-Linux"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/path/to/model.tflite",
+    }
+
+    with patch("src.models.wake_word_filter.sys.platform", "darwin"):
+        with pytest.raises(ValueError, match="tflite models are only supported on Linux"):
+            WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_tflite_url_on_non_linux(mock_env):
+    """Test validate_config raises error when oww_model_path is a .tflite URL on non-Linux"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "https://example.com/model.tflite",
+    }
+
+    with patch("src.models.wake_word_filter.sys.platform", "darwin"):
+        with pytest.raises(ValueError, match="tflite models are only supported on Linux"):
+            WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_accepts_tflite_on_linux(mock_env):
+    """Test validate_config accepts .tflite model on Linux"""
+    config = Mock()
+    config.attributes = Mock()
+
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/path/to/model.tflite",
+    }
+
+    with patch("src.models.wake_word_filter.sys.platform", "linux"):
+        deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
 def test_validate_config_oww_threshold_not_validated_for_vosk(mock_env):
     """Test validate_config ignores oww_threshold when engine is vosk"""
     config = Mock()

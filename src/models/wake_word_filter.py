@@ -11,6 +11,7 @@ from typing import (
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
 import logging
+import sys
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
@@ -273,6 +274,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                     "oww_model_path must be a non-empty string"
                     if not isinstance(oww_model_path, str)
                     else "oww_model_path is required when detection_engine is 'openwakeword'"
+                )
+
+            path_for_ext = oww_model_path.split("?")[0]  # strip query params if URL
+            if path_for_ext.endswith(".tflite") and sys.platform != "linux":
+                raise ValueError(
+                    "tflite models are only supported on Linux. "
+                    "Please use an .onnx model instead."
                 )
 
             oww_threshold: Any = attrs.get("oww_threshold", None)
