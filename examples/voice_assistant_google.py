@@ -119,7 +119,7 @@ class GeminiVoiceAssistant:
                                 else:
                                     print("No speech recognized")
                             except Exception as e:
-                                print(f"Error processing speech: {e}")
+                                print(f"Error processing speech: {type(e).__name__}: {e}")
 
                             segment.clear()
                             print("Listening for next wake word...\n")
@@ -145,12 +145,13 @@ async def main():
 
 
     opts = RobotClient.Options.with_api_key(
-        api_key='',
-        api_key_id=''
+        api_key='5wdw52cd7qib36rlwd8f4089mohdnceg',
+        api_key_id='0e9ade16-4380-4626-8246-cde78b4da568'
     )
 
 
-    robot = await RobotClient.at_address('', opts)
+    robot = await RobotClient.at_address('xarm-main.aqb785vhl4.viam.cloud', opts)
+
 
     try:
         assistant = GeminiVoiceAssistant(robot, "filter", "speaker")
