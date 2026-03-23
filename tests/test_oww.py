@@ -201,7 +201,7 @@ class TestSetupOww:
         ):
             setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
 
-        assert mock_oww.utils.download_file.call_count == 4  # tflite + onnx per model
+        assert mock_oww.utils.download_file.call_count == 2  # one per model
 
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_skips_existing_preprocessing_models(self, mock_makedirs):
@@ -238,98 +238,6 @@ class TestSetupOww:
             "/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls
         )
         assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is False
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_raises_for_invalid_extension(self, mock_makedirs, mock_exists):
-        """Non-.onnx/.tflite extension raises ValueError."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=Mock()),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            pytest.raises(ValueError, match="file extension must be .onnx or .tflite"),
-        ):
-            setup_oww(instance, oww_model_path="/tmp/model.pt", oww_threshold=0.5)
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_tflite_raises_on_non_linux(self, mock_makedirs, mock_exists):
-        """tflite model on non-Linux raises ValueError."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=Mock()),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-            pytest.raises(ValueError, match="tflite models are only supported on Linux"),
-        ):
-            mock_sys.platform = "darwin"
-            setup_oww(instance, oww_model_path="/tmp/model.tflite", oww_threshold=0.5)
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_tflite_uses_tflite_framework_on_linux(self, mock_makedirs, mock_exists):
-        """tflite model on Linux uses inference_framework='tflite'."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "linux"
-            setup_oww(instance, oww_model_path="/tmp/model.tflite", oww_threshold=0.5)
-
-        call_kwargs = mock_oww_model_cls.call_args[1]
-        assert call_kwargs["inference_framework"] == "tflite"
-
-    @patch("src.models.oww.os.path.exists", return_value=True)
-    @patch("src.models.oww.os.makedirs")
-    def test_setup_oww_onnx_uses_onnx_framework(self, mock_makedirs, mock_exists):
-        """onnx model uses inference_framework='onnx'."""
-        instance = self._make_instance()
-        mock_oww = self._mock_openwakeword()
-        mock_oww_model_cls = Mock()
-
-        with (
-            patch.dict(
-                "sys.modules",
-                {
-                    "openwakeword": mock_oww,
-                    "openwakeword.model": Mock(Model=mock_oww_model_cls),
-                    "openwakeword.utils": mock_oww.utils,
-                },
-            ),
-            patch("src.models.oww.sys") as mock_sys,
-        ):
-            mock_sys.platform = "linux"
-            setup_oww(instance, oww_model_path="/tmp/model.onnx", oww_threshold=0.5)
-
-        call_kwargs = mock_oww_model_cls.call_args[1]
-        assert call_kwargs["inference_framework"] == "onnx"
 
 
 class TestOwwCheckForWakeWord:

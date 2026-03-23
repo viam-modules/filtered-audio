@@ -37,6 +37,11 @@ fi
 # -qq suppresses extraneous output from pip
 echo "Virtualenv found/created. Installing/upgrading Python packages..."
 if ! [ -f .installed ]; then
+    # Install openwakeword without deps to skip tflite-runtime (we use ONNX only)
+    if ! $PYTHON -m pip install "openwakeword==0.6.0" --no-deps -Uqq; then
+        echo "Failed to install openwakeword" >&2
+        exit 1
+    fi
     if ! $PYTHON -m pip install -r requirements.txt -Uqq; then
         echo "Failed to install Python packages" >&2
         exit 1

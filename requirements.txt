@@ -6,7 +6,13 @@ webrtcvad-wheels==2.0.14
 vosk==0.3.44
 pydub==0.25.1
 rapidfuzz==3.14.3
-openwakeword==0.6.0
-numpy==1.26.4
+# openwakeword>=0.6.0 is installed with --no-deps in setup.sh
+# to avoid tflite-runtime (we use ONNX inference only).
+# These are its runtime deps we actually need:
+onnxruntime==1.24.1
+scipy==1.17.0
+scikit-learn==1.8.0
+tqdm==4.67.3
+numpy==2.4.2
 certifi==2025.11.12
 speexdsp-ns>=0.1.2; sys_platform == "linux"
