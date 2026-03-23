@@ -7,6 +7,9 @@ vosk==0.3.44
 pydub==0.25.1
 rapidfuzz==3.14.3
 openwakeword==0.6.0
+scikit-learn==1.8.0
+scipy==1.17.1
+onnxruntime==1.24.4
 numpy==1.26.4
 certifi==2025.11.12
 speexdsp-ns>=0.1.2; sys_platform == "linux"
