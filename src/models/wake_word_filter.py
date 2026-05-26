@@ -377,6 +377,9 @@ class WakeWordFilter(AudioIn, EasyResource):
             speech_segment = _SpeechSegment()
             state = _SpeechState.IDLE
             vad_audio_buffer = bytearray()
+            # OWW: True once detection has fired in the current segment. Chunks
+            # are yielded as they arrive instead of buffered until segment end.
+            oww_streaming = False
 
             async for audio_chunk in mic_stream:
                 if self.is_shutting_down:
@@ -385,6 +388,13 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                 # Skip processing when detection is paused (e.g., during TTS)
                 if not self.detection_running:
+                    if oww_streaming:
+                        # Mid-stream pause — emit sentinel so downstream closes its session
+                        empty = AudioChunk()
+                        empty.audio.audio_data = b""
+                        yield empty
+                        self.oww_model.reset()
+                        oww_streaming = False
                     if (
                         speech_segment.speech_chunk_buffer
                         or speech_segment.speech_buffer
@@ -399,25 +409,65 @@ class WakeWordFilter(AudioIn, EasyResource):
                     continue
 
                 vad_audio_buffer.extend(audio_data)
+                current_chunk_yielded = False
 
                 while len(vad_audio_buffer) >= FRAME_SIZE_BYTES:
                     frame = bytes(vad_audio_buffer[:FRAME_SIZE_BYTES])
                     del vad_audio_buffer[:FRAME_SIZE_BYTES]
 
+                    was_detected = speech_segment.oww_detected
                     segment_complete, state = self._process_vad_frame(
                         speech_segment, state, frame, audio_chunk, config
                     )
+
+                    # OWW just fired this frame — flush buffered chunks and switch to streaming.
+                    # Gate on state to ignore OWW false-positives during silence between segments.
+                    if (
+                        not was_detected
+                        and speech_segment.oww_detected
+                        and state != _SpeechState.IDLE
+                    ):
+                        self.logger.info(
+                            "OWW: detected, streaming %d buffered chunks then live",
+                            len(speech_segment.speech_chunk_buffer),
+                        )
+                        for buffered in speech_segment.speech_chunk_buffer:
+                            if buffered is audio_chunk:
+                                current_chunk_yielded = True
+                            yield buffered
+                        oww_streaming = True
+
                     if segment_complete:
-                        async for chunk in self._finalize_segment(
-                            speech_segment, config
-                        ):
-                            yield chunk
+                        if oww_streaming:
+                            # Already streamed — just emit segment-end sentinel
+                            empty = AudioChunk()
+                            empty.audio.audio_data = b""
+                            yield empty
+                            self.oww_model.reset()
+                            oww_streaming = False
+                            speech_segment.reset()
+                        else:
+                            # Vosk path, or OWW with no detection — existing finalize
+                            async for chunk in self._finalize_segment(
+                                speech_segment, config
+                            ):
+                                yield chunk
                         state = _SpeechState.IDLE
                         break
 
+                # If streaming and this chunk arrived after detection, yield it now
+                if oww_streaming and not current_chunk_yielded:
+                    yield audio_chunk
+
             # Process any remaining buffered audio when stream ends
             if state in (_SpeechState.ACTIVE, _SpeechState.TRAILING):
-                if speech_segment.speech_frames >= config.min_speech_frames:
+                if oww_streaming:
+                    # Mid-stream when mic ended — emit sentinel and clean up
+                    empty = AudioChunk()
+                    empty.audio.audio_data = b""
+                    yield empty
+                    self.oww_model.reset()
+                elif speech_segment.speech_frames >= config.min_speech_frames:
                     self.logger.debug(
                         "Stream ended with %d bytes buffered, processing",
                         len(speech_segment.speech_buffer),

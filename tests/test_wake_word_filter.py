@@ -442,6 +442,7 @@ def test_validate_config_accepts_valid_min_speech_ms(mock_env):
     assert not errors
 
 
+
 def test_validate_config_rejects_non_bool_use_grammar(mock_env):
     """Test validate_config raises error when use_grammar is not a boolean"""
     config = Mock()
@@ -1619,3 +1620,166 @@ async def test_pause_with_buffered_audio_resets_segment():
 
     # Nothing should be yielded — segment was discarded on pause
     assert len(chunks) == 0
+
+
+# OWW streaming behavior tests
+#
+# OWW inference runs once oww_audio_buffer >= 2560 bytes (OWW_CHUNK_SIZE).
+# With 960-byte VAD frames (== one chunk in these tests), detection fires
+# on the 3rd frame when oww_model.predict returns a score above threshold.
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_flushes_buffered_chunks_on_detection():
+    """First detection yields all pre-detection chunks once, in order."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    chunks_in = [make_audio_chunk(960) for _ in range(3)]
+    wf.microphone_client.get_audio.return_value = async_iter(chunks_in)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    # Real chunks (drop any trailing sentinel) yielded once each, in order
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    assert real == chunks_in
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_yields_post_detection_chunks_immediately():
+    """After detection, each new chunk is yielded as it arrives (live)."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # 3 pre-detection + 4 post-detection speech chunks
+    chunks_in = [make_audio_chunk(960) for _ in range(7)]
+    wf.microphone_client.get_audio.return_value = async_iter(chunks_in)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    # All 7 input chunks yielded once each, none lost, none duplicated
+    assert real == chunks_in
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_segment_end_emits_sentinel_and_resets():
+    """When the segment ends mid-stream, emit an empty sentinel and reset OWW."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # 3 speech frames (trigger detection), then enough silence to close segment
+    # silence_duration_ms=900, frame=30ms → 30 silence frames closes the segment
+    speech = [make_audio_chunk(960) for _ in range(3)]
+    silence = [make_audio_chunk(960) for _ in range(35)]
+    wf.vad.is_speech.side_effect = [True] * 3 + [False] * 35
+
+    wf.microphone_client.get_audio.return_value = async_iter(speech + silence)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    assert chunks_out[-1].audio.audio_data == b""
+    wf.oww_model.reset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_pause_mid_stream_emits_sentinel():
+    """Pausing detection while streaming emits sentinel and resets OWW."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    pre = [make_audio_chunk(960) for _ in range(3)]  # triggers detection
+    post = [make_audio_chunk(960) for _ in range(2)]  # streamed live
+    pause_chunk = make_audio_chunk(960)
+
+    async def mic_stream():
+        for c in pre + post:
+            yield c
+        wf.detection_running = False
+        yield pause_chunk
+
+    wf.microphone_client.get_audio.return_value = mic_stream()
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    sentinels = [c for c in chunks_out if c.audio.audio_data == b""]
+    assert real == pre + post  # paused chunk dropped
+    assert len(sentinels) >= 1
+    wf.oww_model.reset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_stream_end_mid_detection_emits_sentinel():
+    """Mic stream ending mid-stream emits sentinel and resets OWW."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.vad.is_speech.return_value = True
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # Detection fires on frame 3, then mic ends with stream still open
+    chunks_in = [make_audio_chunk(960) for _ in range(4)]
+    wf.microphone_client.get_audio.return_value = async_iter(chunks_in)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    assert chunks_out[-1].audio.audio_data == b""
+    wf.oww_model.reset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_vosk_does_not_stream():
+    """Vosk path never enters streaming mode: only _finalize_segment yields chunks."""
+    wf = make_oww_filter()  # reuse helper, then flip engine
+    wf.detection_engine = "vosk"
+    wf.vad.is_speech.side_effect = [True] * 12 + [False] * 35
+
+    # Mock vosk_process_segment to yield one chunk + sentinel like the real path
+    yielded_marker = make_audio_chunk(960)
+
+    async def fake_vosk_process_segment(*_args):
+        yield yielded_marker
+        yield make_audio_chunk(0)
+
+    speech = [make_audio_chunk(960) for _ in range(12)]
+    silence = [make_audio_chunk(960) for _ in range(35)]
+    wf.microphone_client.get_audio.return_value = async_iter(speech + silence)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    with patch(
+        "src.models.wake_word_filter.vosk_process_segment",
+        side_effect=fake_vosk_process_segment,
+    ):
+        stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+        chunks_out = await collect_stream(stream)
+
+    # Only what vosk_process_segment yielded — not the raw input chunks
+    assert yielded_marker in chunks_out
+    # None of the streaming-path input chunks leaked through directly
+    assert not any(c in chunks_out for c in speech)
+    # OWW reset must not have been called — vosk path doesn't touch OWW
+    wf.oww_model.reset.assert_not_called()
