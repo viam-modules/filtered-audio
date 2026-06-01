@@ -420,26 +420,34 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_segment, state, frame, audio_chunk, config
                     )
 
-                    # OWW just fired this frame — flush buffered chunks and switch to streaming.
-                    # Gate on state to ignore OWW false-positives during silence between segments.
-                    if (
-                        not was_detected
-                        and speech_segment.oww_detected
-                        and state != _SpeechState.IDLE
-                    ):
-                        self.logger.info(
-                            "OWW: detected, streaming %d buffered chunks then live",
-                            len(speech_segment.speech_chunk_buffer),
-                        )
-                        for buffered in speech_segment.speech_chunk_buffer:
-                            if buffered is audio_chunk:
-                                current_chunk_yielded = True
-                            yield buffered
-                        oww_streaming = True
+                    # OWW just fired this frame — branch on VAD state.
+                    if not was_detected and speech_segment.oww_detected:
+                        if state != _SpeechState.IDLE:
+                            self.logger.info(
+                                "OWW: detected, streaming %d buffered chunks then live",
+                                len(speech_segment.speech_chunk_buffer),
+                            )
+                            for buffered in speech_segment.speech_chunk_buffer:
+                                if buffered is audio_chunk:
+                                    current_chunk_yielded = True
+                                yield buffered
+                            oww_streaming = True
+                        else:
+                            # False positive during silence — clear flag and OWW
+                            # state so the next real utterance gets fresh inference.
+                            self.logger.debug(
+                                "OWW: ignoring IDLE-state detection (false positive)"
+                            )
+                            speech_segment.oww_detected = False
+                            speech_segment.oww_audio_buffer.clear()
+                            self.oww_model.reset()
 
                     if segment_complete:
                         if oww_streaming:
-                            # Already streamed — just emit segment-end sentinel
+                            # Yield current chunk before sentinel if not already streamed
+                            if not current_chunk_yielded:
+                                yield audio_chunk
+                                current_chunk_yielded = True
                             empty = AudioChunk()
                             empty.audio.audio_data = b""
                             yield empty

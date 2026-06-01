@@ -1697,6 +1697,74 @@ async def test_oww_streaming_segment_end_emits_sentinel_and_resets():
 
 
 @pytest.mark.asyncio
+async def test_oww_evaluates_each_speech_segment_independently():
+    """Each speech segment is evaluated by its own OWW inference. A detection
+    during IDLE (silence) clears, so the next utterance gets a fresh inference
+    and only yields when its own audio contains the wake word."""
+    wf = make_oww_filter(threshold=0.5)
+
+    # OWW returns a positive score during pre-segment silence, then below-threshold
+    # for the actual speech segment. Inference runs every 2560 bytes; frames are
+    # 960 bytes, so inference fires roughly every 3 frames.
+    wf.oww_model.predict.side_effect = (
+        [{"okay_gambit": 0.9}] + [{"okay_gambit": 0.1}] * 50
+    )
+    wf.oww_model.prediction_buffer = {"okay_gambit": [0.1]}
+
+    silence_pre = [make_audio_chunk(960) for _ in range(3)]
+    speech = [make_audio_chunk(960) for _ in range(12)]
+    silence_post = [make_audio_chunk(960) for _ in range(35)]
+    wf.vad.is_speech.side_effect = [False] * 3 + [True] * 12 + [False] * 35
+
+    wf.microphone_client.get_audio.return_value = async_iter(
+        silence_pre + speech + silence_post
+    )
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    # The real speech segment had no wake word, so output is empty — the IDLE-time
+    # detection was scoped to silence and did not carry into the speech segment.
+    assert chunks_out == []
+    wf.oww_model.reset.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_oww_streaming_yields_full_segment_before_sentinel():
+    """All streamed chunks — including the one whose frame trips segment_complete —
+    must be yielded before the sentinel."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+
+    # 3 speech frames trigger detection (OWW inference fires once buffer >= 2560B,
+    # i.e. on the 3rd 960B frame). Then 30 silence frames close the segment —
+    # the 30th silence chunk is the one that trips segment_complete mid-chunk.
+    speech = [make_audio_chunk(960) for _ in range(3)]
+    silence = [make_audio_chunk(960) for _ in range(30)]
+    chunks_in = speech + silence
+    wf.vad.is_speech.side_effect = [True] * 3 + [False] * 30
+
+    wf.microphone_client.get_audio.return_value = async_iter(chunks_in)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    sentinels = [c for c in chunks_out if c.audio.audio_data == b""]
+
+    # Every input chunk yielded once, in order — none dropped, none duplicated
+    assert real == chunks_in
+    assert len(sentinels) == 1
+    assert chunks_out[-1].audio.audio_data == b""
+
+
+@pytest.mark.asyncio
 async def test_oww_streaming_pause_mid_stream_emits_sentinel():
     """Pausing detection while streaming emits sentinel and resets OWW."""
     wf = make_oww_filter(threshold=0.5)
