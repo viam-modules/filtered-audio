@@ -1186,6 +1186,8 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf.vad = Mock()
     wf.silence_duration_ms = 900
     wf.min_speech_duration_ms = 300
+    wf.conversation_timeout_seconds = 0.0
+    wf._conversation_window_expires_at = 0.0
     wf.logger = Mock()
     wf.microphone_client = AsyncMock()
     # Bind real methods so async-generator calls work correctly
@@ -1197,6 +1199,12 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf._process_vad_frame = types.MethodType(WakeWordFilter._process_vad_frame, wf)
     wf._run_detection = types.MethodType(WakeWordFilter._run_detection, wf)
     wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
+    wf._in_conversation_window = types.MethodType(
+        WakeWordFilter._in_conversation_window, wf
+    )
+    wf._refresh_conversation_window = types.MethodType(
+        WakeWordFilter._refresh_conversation_window, wf
+    )
     return wf
 
 
