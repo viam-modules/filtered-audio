@@ -286,50 +286,6 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         return deps, []
 
-    async def _finalize_segment(
-        self,
-        speech_chunk_buffer: List[AudioChunk],
-        speech_buffer: bytearray,
-        oww_detected: bool,
-    ) -> AsyncGenerator[AudioChunk, None]:
-        """
-        Finalize a completed speech segment for the active detection engine.
-
-        OWW: detection already happened per-frame, so just check the result
-        and yield buffered chunks if the wake word was detected, then reset
-        the OWW model state for the next segment.
-
-        Vosk: detection hasn't run yet — run inference on the full buffered
-        segment now, then yield chunks if the wake word was found.
-        """
-        if self.detection_engine == "openwakeword":
-            if oww_detected:
-                self.logger.info(
-                    "OWW: Yielding %d chunks (%d bytes)",
-                    len(speech_chunk_buffer),
-                    len(speech_buffer),
-                )
-                for chunk in speech_chunk_buffer:
-                    yield chunk
-                empty_response = AudioChunk()
-                empty_response.audio.audio_data = b""
-                yield empty_response
-            else:
-                buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
-                max_score = max(buf) if buf else 0.0
-                self.logger.debug(
-                    "OWW: No detection (max_score=%.3f, threshold=%.2f)",
-                    max_score,
-                    self.oww_threshold,
-                )
-            self.oww_model.reset()
-        else:
-            # Vosk: run inference on the complete buffered segment
-            async for chunk in self._vosk_process_segment(
-                speech_chunk_buffer, speech_buffer
-            ):
-                yield chunk
-
     async def get_audio(
         self, codec: str, duration_seconds: float, previous_timestamp_ns: int, **kwargs
     ) -> StreamWithIterator:
@@ -483,7 +439,6 @@ class WakeWordFilter(AudioIn, EasyResource):
                     async for chunk in self._run_detection(
                         speech_segment.speech_chunk_buffer,
                         speech_segment.speech_buffer,
-                        speech_segment.oww_detected,
                     ):
                         yield chunk
                 else:
@@ -520,45 +475,32 @@ class WakeWordFilter(AudioIn, EasyResource):
         self,
         speech_chunk_buffer: List[AudioChunk],
         speech_buffer: bytearray,
-        oww_detected: bool,
     ) -> AsyncGenerator[AudioChunk, None]:
         """
         Run wake word detection on a buffered speech segment and yield matching chunks.
 
-        OWW: detection already happened per-frame, so just check the result
-        and yield buffered chunks if the wake word was detected, then reset
-        the OWW model state for the next segment.
+        OWW: detection and yielding both happen in `audio_generator` as audio
+        streams in. Reaching here means the segment ended without a detection,
+        so just log the miss and reset model state for the next segment.
 
         Vosk: detection hasn't run yet — run inference on the full buffered
         segment now, then yield chunks if the wake word was found.
         """
         if self.detection_engine == "openwakeword":
-            if oww_detected:
-                self.logger.info(
-                    "OWW: Yielding %d chunks (%d bytes)",
-                    len(speech_chunk_buffer),
-                    len(speech_buffer),
-                )
-                for chunk in speech_chunk_buffer:
-                    yield chunk
-                empty_response = AudioChunk()
-                empty_response.audio.audio_data = b""
-                yield empty_response
-            else:
-                buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
-                max_score = max(buf) if buf else 0.0
-                self.logger.debug(
-                    "OWW: No detection (max_score=%.3f, threshold=%.2f)",
-                    max_score,
-                    self.oww_threshold,
-                )
+            buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
+            max_score = max(buf) if buf else 0.0
+            self.logger.debug(
+                "OWW: No detection (max_score=%.3f, threshold=%.2f)",
+                max_score,
+                self.oww_threshold,
+            )
             self.oww_model.reset()
-        else:
-            # Vosk: run inference on the complete buffered segment
-            async for chunk in vosk_process_segment(
-                self, speech_chunk_buffer, speech_buffer
-            ):
-                yield chunk
+            return
+        # Vosk: run inference on the complete buffered segment
+        async for chunk in vosk_process_segment(
+            self, speech_chunk_buffer, speech_buffer
+        ):
+            yield chunk
 
     async def _finalize_segment(
         self, speech_segment: _SpeechSegment, config: _SegmentThresholds
@@ -573,7 +515,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             async for chunk in self._run_detection(
                 speech_segment.speech_chunk_buffer,
                 speech_segment.speech_buffer,
-                speech_segment.oww_detected,
             ):
                 yield chunk
         else:
