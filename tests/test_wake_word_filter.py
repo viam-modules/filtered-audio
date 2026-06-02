@@ -442,7 +442,6 @@ def test_validate_config_accepts_valid_min_speech_ms(mock_env):
     assert not errors
 
 
-
 def test_validate_config_rejects_non_bool_use_grammar(mock_env):
     """Test validate_config raises error when use_grammar is not a boolean"""
     config = Mock()
@@ -1706,9 +1705,9 @@ async def test_oww_evaluates_each_speech_segment_independently():
     # OWW returns a positive score during pre-segment silence, then below-threshold
     # for the actual speech segment. Inference runs every 2560 bytes; frames are
     # 960 bytes, so inference fires roughly every 3 frames.
-    wf.oww_model.predict.side_effect = (
-        [{"okay_gambit": 0.9}] + [{"okay_gambit": 0.1}] * 50
-    )
+    wf.oww_model.predict.side_effect = [{"okay_gambit": 0.9}] + [
+        {"okay_gambit": 0.1}
+    ] * 50
     wf.oww_model.prediction_buffer = {"okay_gambit": [0.1]}
 
     silence_pre = [make_audio_chunk(960) for _ in range(3)]
