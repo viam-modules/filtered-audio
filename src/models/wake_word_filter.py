@@ -402,10 +402,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # OWW just fired this frame — branch on VAD state.
                     if not was_detected and speech_segment.oww_detected:
                         if state != _SpeechState.IDLE:
-                            self.logger.info(
-                                "OWW: detected, streaming %d buffered chunks then live",
-                                len(speech_segment.speech_chunk_buffer),
-                            )
+                            if self._in_conversation_window():
+                                self.logger.debug("Conversation continued")
                             for buffered in speech_segment.speech_chunk_buffer:
                                 if buffered is audio_chunk:
                                     current_chunk_yielded = True
@@ -526,7 +524,8 @@ class WakeWordFilter(AudioIn, EasyResource):
             buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
             max_score = max(buf) if buf else 0.0
             self.logger.debug(
-                "OWW: No detection (max_score=%.3f, threshold=%.2f)",
+                "Segment ended: %d bytes, OWW max_score=%.3f (threshold=%.2f)",
+                len(speech_buffer),
                 max_score,
                 self.oww_threshold,
             )
@@ -561,22 +560,13 @@ class WakeWordFilter(AudioIn, EasyResource):
     ) -> AsyncGenerator[AudioChunk, None]:
         """Finalize the current segment and reset to IDLE."""
         if speech_segment.speech_frames >= config.min_speech_frames:
-            self.logger.debug(
-                "Speech segment ended (%d frames, %d bytes)",
-                speech_segment.speech_frames,
-                len(speech_segment.speech_buffer),
-            )
             async for chunk in self._run_detection(
                 speech_segment.speech_chunk_buffer,
                 speech_segment.speech_buffer,
             ):
                 yield chunk
-        else:
-            self.logger.debug(
-                "Ignoring false positive: only %d frames", speech_segment.speech_frames
-            )
-            if self.detection_engine == "openwakeword":
-                self.oww_model.reset()
+        elif self.detection_engine == "openwakeword":
+            self.oww_model.reset()
         speech_segment.reset()
 
     def _process_vad_frame(
@@ -640,7 +630,6 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         match (state, is_speech):
             case (_SpeechState.IDLE, True):
-                self.logger.debug("Speech segment started")
                 speech_segment.speech_frames = 1
                 if (
                     self.detection_engine == "openwakeword"

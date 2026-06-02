@@ -1859,3 +1859,237 @@ async def test_vosk_does_not_stream():
     assert not any(c in chunks_out for c in speech)
     # OWW reset must not have been called — vosk path doesn't touch OWW
     wf.oww_model.reset.assert_not_called()
+
+
+# conversation_timeout_seconds tests
+
+
+def test_validate_config_accepts_conversation_timeout(mock_env):
+    """validate_config accepts a positive conversation_timeout_seconds."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "conversation_timeout_seconds": 10,
+    }
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_accepts_zero_conversation_timeout(mock_env):
+    """validate_config accepts 0 (feature disabled)."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "conversation_timeout_seconds": 0,
+    }
+    deps, errors = WakeWordFilter.validate_config(config)
+    assert deps == ["mic"]
+    assert not errors
+
+
+def test_validate_config_rejects_negative_conversation_timeout(mock_env):
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "conversation_timeout_seconds": -1,
+    }
+    with pytest.raises(ValueError, match="conversation_timeout_seconds must be non-negative"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_number_conversation_timeout(mock_env):
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "wake_words": ["robot"],
+        "conversation_timeout_seconds": "ten",
+    }
+    with pytest.raises(ValueError, match="conversation_timeout_seconds must be a number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_new_uses_default_conversation_timeout(mock_env):
+    """new() defaults conversation_timeout_seconds to 0 (feature off)."""
+    config = Mock()
+    mic = AsyncMock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+    }
+    instance = WakeWordFilter.new(config, {"mic1": mic})
+    assert instance.conversation_timeout_seconds == 0
+    assert instance._conversation_window_expires_at == 0.0
+
+
+def test_new_uses_custom_conversation_timeout(mock_env):
+    config = Mock()
+    mic = AsyncMock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic1",
+        "wake_words": ["robot"],
+        "conversation_timeout_seconds": 15,
+    }
+    instance = WakeWordFilter.new(config, {"mic1": mic})
+    assert instance.conversation_timeout_seconds == 15.0
+
+
+def test_in_conversation_window_true_when_deadline_in_future():
+    """_in_conversation_window returns True when monotonic clock < expires_at."""
+    wf = make_oww_filter()
+    wf.conversation_timeout_seconds = 10.0
+    # Far-future deadline
+    wf._conversation_window_expires_at = float("inf")
+    assert WakeWordFilter._in_conversation_window(wf) is True
+
+
+def test_in_conversation_window_false_when_disabled():
+    """_in_conversation_window returns False when timeout is 0, regardless of deadline."""
+    wf = make_oww_filter()
+    wf.conversation_timeout_seconds = 0.0
+    wf._conversation_window_expires_at = float("inf")
+    assert WakeWordFilter._in_conversation_window(wf) is False
+
+
+def test_in_conversation_window_false_when_deadline_passed():
+    wf = make_oww_filter()
+    wf.conversation_timeout_seconds = 10.0
+    wf._conversation_window_expires_at = 0.0
+    assert WakeWordFilter._in_conversation_window(wf) is False
+
+
+def test_refresh_conversation_window_sets_deadline():
+    """_refresh_conversation_window advances the deadline by the timeout."""
+    import time as time_module
+
+    wf = make_oww_filter()
+    wf.conversation_timeout_seconds = 10.0
+    wf._conversation_window_expires_at = 0.0
+    before = time_module.monotonic()
+    WakeWordFilter._refresh_conversation_window(wf)
+    after = time_module.monotonic()
+    assert before + 10.0 <= wf._conversation_window_expires_at <= after + 10.0
+
+
+def test_refresh_conversation_window_noop_when_disabled():
+    """_refresh_conversation_window does nothing when timeout is 0."""
+    wf = make_oww_filter()
+    wf.conversation_timeout_seconds = 0.0
+    wf._conversation_window_expires_at = 0.0
+    WakeWordFilter._refresh_conversation_window(wf)
+    assert wf._conversation_window_expires_at == 0.0
+
+
+@pytest.mark.asyncio
+async def test_oww_conversation_window_streams_speech_without_wake_word():
+    """In a conversation window, speech alone (no wake-word inference hit) engages
+    streaming because the IDLE→ACTIVE transition sets oww_detected=True."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.conversation_timeout_seconds = 10.0
+    wf._conversation_window_expires_at = float("inf")
+    # OWW would return below threshold — but conversation mode bypasses inference.
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.1}
+    wf.vad.is_speech.side_effect = [True] * 5 + [False] * 35
+
+    speech = [make_audio_chunk(960) for _ in range(5)]
+    silence = [make_audio_chunk(960) for _ in range(35)]
+    wf.microphone_client.get_audio.return_value = async_iter(speech + silence)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    # Conversation mode engaged streaming on the very first speech frame —
+    # every speech chunk was yielded without OWW ever firing.
+    assert all(c in real for c in speech)
+    assert chunks_out[-1].audio.audio_data == b""
+
+
+@pytest.mark.asyncio
+async def test_oww_no_conversation_window_drops_unprefixed_speech():
+    """With no conversation window, speech that doesn't trigger OWW detection
+    is not yielded."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.conversation_timeout_seconds = 0.0
+    wf._conversation_window_expires_at = 0.0
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.1}
+    wf.oww_model.prediction_buffer = {"okay_gambit": [0.1]}
+    wf.vad.is_speech.side_effect = [True] * 12 + [False] * 35
+
+    speech = [make_audio_chunk(960) for _ in range(12)]
+    silence = [make_audio_chunk(960) for _ in range(35)]
+    wf.microphone_client.get_audio.return_value = async_iter(speech + silence)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    chunks_out = await collect_stream(stream)
+    assert chunks_out == []
+
+
+@pytest.mark.asyncio
+async def test_vosk_conversation_window_bypasses_transcript_check():
+    """In a conversation window, Vosk yields the segment without running
+    transcript matching."""
+    wf = make_oww_filter()  # reuse helper
+    wf.detection_engine = "vosk"
+    wf.conversation_timeout_seconds = 10.0
+    wf._conversation_window_expires_at = float("inf")
+
+    speech_chunks = [make_audio_chunk(960) for _ in range(3)]
+    speech_buffer = bytearray(b"\x00" * 2880)
+
+    async def fake_vosk_process_segment(*_args):
+        # Should NOT be called in conversation mode — yield a marker so we can
+        # detect if it was incorrectly invoked.
+        yield make_audio_chunk(960)
+        raise AssertionError("vosk_process_segment should be bypassed in conversation mode")
+
+    with patch(
+        "src.models.wake_word_filter.vosk_process_segment",
+        side_effect=fake_vosk_process_segment,
+    ):
+        chunks_out = []
+        async for chunk in WakeWordFilter._run_detection(
+            wf, speech_chunks, speech_buffer
+        ):
+            chunks_out.append(chunk)
+
+    real = [c for c in chunks_out if c.audio.audio_data != b""]
+    assert real == speech_chunks
+    assert chunks_out[-1].audio.audio_data == b""
+
+
+@pytest.mark.asyncio
+async def test_streaming_sentinel_refreshes_conversation_window():
+    """Each yielded OWW segment refreshes the conversation window (sliding timer)."""
+    wf = make_oww_filter(threshold=0.5)
+    wf.conversation_timeout_seconds = 5.0
+    wf._conversation_window_expires_at = 0.0  # window currently closed
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.9}
+    wf.vad.is_speech.side_effect = [True] * 3 + [False] * 35
+
+    speech = [make_audio_chunk(960) for _ in range(3)]
+    silence = [make_audio_chunk(960) for _ in range(35)]
+    wf.microphone_client.get_audio.return_value = async_iter(speech + silence)
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    await collect_stream(stream)
+
+    import time as time_module
+    # After a successful segment, the window deadline should be in the future.
+    assert wf._conversation_window_expires_at > time_module.monotonic()
