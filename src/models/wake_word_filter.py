@@ -11,6 +11,7 @@ from typing import (
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
@@ -73,6 +74,8 @@ class WakeWordFilter(AudioIn, EasyResource):
     oww_model: Optional[Any]
     oww_model_name: Optional[str]
     oww_threshold: float
+    conversation_timeout_seconds: float
+    _conversation_window_expires_at: float
 
     @classmethod
     def new(
@@ -164,6 +167,17 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True
 
+        # Conversation mode: after a successful detection, treat subsequent
+        # speech as wake-word-prefixed for this many seconds. 0 disables.
+        instance.conversation_timeout_seconds = float(
+            attrs.get("conversation_timeout_seconds", 0)
+        )
+        instance._conversation_window_expires_at = 0.0
+        if instance.conversation_timeout_seconds > 0:
+            instance.logger.info(
+                f"Conversation mode: {instance.conversation_timeout_seconds}s"
+            )
+
         return instance
 
     @classmethod
@@ -218,6 +232,15 @@ class WakeWordFilter(AudioIn, EasyResource):
                 raise ValueError("min_speech_ms must be a whole number")
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
+
+        conversation_timeout: Any = attrs.get("conversation_timeout_seconds", None)
+        if conversation_timeout is not None:
+            if not isinstance(conversation_timeout, (int, float)):
+                raise ValueError("conversation_timeout_seconds must be a number")
+            if conversation_timeout < 0:
+                raise ValueError(
+                    f"conversation_timeout_seconds must be non-negative, got {conversation_timeout}"
+                )
 
         # Validate Vosk-specific config
         if detection_engine == "vosk":
@@ -379,10 +402,8 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # OWW just fired this frame — branch on VAD state.
                     if not was_detected and speech_segment.oww_detected:
                         if state != _SpeechState.IDLE:
-                            self.logger.info(
-                                "OWW: detected, streaming %d buffered chunks then live",
-                                len(speech_segment.speech_chunk_buffer),
-                            )
+                            if self._in_conversation_window():
+                                self.logger.debug("Conversation continued")
                             for buffered in speech_segment.speech_chunk_buffer:
                                 if buffered is audio_chunk:
                                     current_chunk_yielded = True
@@ -407,6 +428,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             empty = AudioChunk()
                             empty.audio.audio_data = b""
                             yield empty
+                            self._refresh_conversation_window()
                             self.oww_model.reset()
                             oww_streaming = False
                             speech_segment.reset()
@@ -471,6 +493,18 @@ class WakeWordFilter(AudioIn, EasyResource):
             )
         return mic_props
 
+    def _in_conversation_window(self) -> bool:
+        return (
+            self.conversation_timeout_seconds > 0
+            and time.monotonic() < self._conversation_window_expires_at
+        )
+
+    def _refresh_conversation_window(self) -> None:
+        if self.conversation_timeout_seconds > 0:
+            self._conversation_window_expires_at = (
+                time.monotonic() + self.conversation_timeout_seconds
+            )
+
     async def _run_detection(
         self,
         speech_chunk_buffer: List[AudioChunk],
@@ -489,40 +523,52 @@ class WakeWordFilter(AudioIn, EasyResource):
         if self.detection_engine == "openwakeword":
             buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
             max_score = max(buf) if buf else 0.0
-            self.logger.debug(
-                "OWW: No detection (max_score=%.3f, threshold=%.2f)",
-                max_score,
-                self.oww_threshold,
-            )
+            # Only log near-misses (>= half threshold)
+            if max_score >= self.oww_threshold * 0.5:
+                self.logger.debug(
+                    "OWW near-miss: %d bytes, max_score=%.3f (threshold=%.2f)",
+                    len(speech_buffer),
+                    max_score,
+                    self.oww_threshold,
+                )
             self.oww_model.reset()
             return
-        # Vosk: run inference on the complete buffered segment
+
+        if self._in_conversation_window():
+            # In a conversation: bypass Vosk transcript check, yield the segment.
+            self.logger.info(
+                "Conversation: yielding %d chunks without wake-word check",
+                len(speech_chunk_buffer),
+            )
+            for chunk in speech_chunk_buffer:
+                yield chunk
+            empty_response = AudioChunk()
+            empty_response.audio.audio_data = b""
+            yield empty_response
+            self._refresh_conversation_window()
+            return
+
+        yielded = False
         async for chunk in vosk_process_segment(
             self, speech_chunk_buffer, speech_buffer
         ):
             yield chunk
+            yielded = True
+        if yielded:
+            self._refresh_conversation_window()
 
     async def _finalize_segment(
         self, speech_segment: _SpeechSegment, config: _SegmentThresholds
     ) -> AsyncGenerator[AudioChunk, None]:
         """Finalize the current segment and reset to IDLE."""
         if speech_segment.speech_frames >= config.min_speech_frames:
-            self.logger.debug(
-                "Speech segment ended (%d frames, %d bytes)",
-                speech_segment.speech_frames,
-                len(speech_segment.speech_buffer),
-            )
             async for chunk in self._run_detection(
                 speech_segment.speech_chunk_buffer,
                 speech_segment.speech_buffer,
             ):
                 yield chunk
-        else:
-            self.logger.debug(
-                "Ignoring false positive: only %d frames", speech_segment.speech_frames
-            )
-            if self.detection_engine == "openwakeword":
-                self.oww_model.reset()
+        elif self.detection_engine == "openwakeword":
+            self.oww_model.reset()
         speech_segment.reset()
 
     def _process_vad_frame(
@@ -533,7 +579,26 @@ class WakeWordFilter(AudioIn, EasyResource):
         audio_chunk: AudioChunk,
         config: _SegmentThresholds,
     ) -> tuple[bool, _SpeechState]:
-        """Classify one VAD frame, update state machine, and buffer audio.
+        """Process one 30ms audio frame.
+
+        Three things happen per frame:
+
+        1. WebRTC VAD classifies the frame as speech or silence.
+        2. OWW runs inference on the frame and sets `oww_detected` on a hit;
+           inside a conversation window it's set on the first speech frame
+           instead. Vosk does nothing here — inference runs at segment end.
+        3. The state machine advances:
+              IDLE     + speech  → ACTIVE  (segment start; begin buffering)
+              ACTIVE   + speech  → ACTIVE  (count speech_frames)
+              ACTIVE   + silence → TRAILING (start counting silence_frames)
+              TRAILING + speech  → ACTIVE   (resume; reset silence_frames)
+              TRAILING + silence → TRAILING (accumulate silence)
+           In ACTIVE/TRAILING the frame's bytes go into speech_buffer, and the
+           originating audio_chunk is appended once to speech_chunk_buffer (a
+           single chunk can contain multiple VAD frames).
+
+        A segment is "complete" when either silence has run long enough
+        (max_silence_frames) or the buffer hit MAX_BUFFER_SIZE_BYTES.
 
         Returns:
             (segment_complete, new_state)
@@ -552,46 +617,45 @@ class WakeWordFilter(AudioIn, EasyResource):
                     self, speech_segment.oww_audio_buffer
                 )
 
-        if state == _SpeechState.IDLE:
-            if is_speech:
-                self.logger.debug("Speech segment started")
-                state = _SpeechState.ACTIVE
+        # IDLE + silence: nothing to do.
+        if state == _SpeechState.IDLE and not is_speech:
+            return False, state
+
+        # Buffer the frame. Multiple VAD frames can share one audio_chunk, so
+        # only append the chunk if it's not already the last one buffered.
+        if (
+            not speech_segment.speech_chunk_buffer
+            or speech_segment.speech_chunk_buffer[-1] is not audio_chunk
+        ):
+            speech_segment.speech_chunk_buffer.append(audio_chunk)
+        speech_segment.speech_buffer.extend(frame)
+
+        match (state, is_speech):
+            case (_SpeechState.IDLE, True):
                 speech_segment.speech_frames = 1
-                speech_segment.speech_chunk_buffer.append(audio_chunk)
-                speech_segment.speech_buffer.extend(frame)
-        else:
-            # ACTIVE or TRAILING: buffer every frame, but only add the chunk once
-            # (one audio_chunk may contain multiple VAD frames)
-            if (
-                not speech_segment.speech_chunk_buffer
-                or speech_segment.speech_chunk_buffer[-1] is not audio_chunk
-            ):
-                speech_segment.speech_chunk_buffer.append(audio_chunk)
-            speech_segment.speech_buffer.extend(frame)
+                if (
+                    self.detection_engine == "openwakeword"
+                    and self._in_conversation_window()
+                ):
+                    speech_segment.oww_detected = True
+                return False, _SpeechState.ACTIVE
+            case (_SpeechState.ACTIVE, True):
+                speech_segment.speech_frames += 1
+            case (_SpeechState.ACTIVE, False):
+                state = _SpeechState.TRAILING
+                speech_segment.silence_frames = 1
+            case (_SpeechState.TRAILING, True):
+                state = _SpeechState.ACTIVE
+                speech_segment.speech_frames += 1
+                speech_segment.silence_frames = 0
+            case (_SpeechState.TRAILING, False):
+                speech_segment.silence_frames += 1
 
-            if state == _SpeechState.ACTIVE:
-                if is_speech:
-                    speech_segment.speech_frames += 1
-                else:
-                    # Speech stopped — start counting silence
-                    state = _SpeechState.TRAILING
-                    speech_segment.silence_frames = 1
-
-            elif state == _SpeechState.TRAILING:
-                if is_speech:
-                    # Speech resumed — back to ACTIVE
-                    state = _SpeechState.ACTIVE
-                    speech_segment.speech_frames += 1
-                    speech_segment.silence_frames = 0
-                else:
-                    speech_segment.silence_frames += 1
-
-            if (
-                speech_segment.silence_frames >= config.max_silence_frames
-                or len(speech_segment.speech_buffer) >= MAX_BUFFER_SIZE_BYTES
-            ):
-                return True, state
-
+        if (
+            speech_segment.silence_frames >= config.max_silence_frames
+            or len(speech_segment.speech_buffer) >= MAX_BUFFER_SIZE_BYTES
+        ):
+            return True, state
         return False, state
 
     async def close(self) -> None:
