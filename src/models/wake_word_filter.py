@@ -523,12 +523,14 @@ class WakeWordFilter(AudioIn, EasyResource):
         if self.detection_engine == "openwakeword":
             buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
             max_score = max(buf) if buf else 0.0
-            self.logger.debug(
-                "Segment ended: %d bytes, OWW max_score=%.3f (threshold=%.2f)",
-                len(speech_buffer),
-                max_score,
-                self.oww_threshold,
-            )
+            # Only log near-misses (>= half threshold)
+            if max_score >= self.oww_threshold * 0.5:
+                self.logger.debug(
+                    "OWW near-miss: %d bytes, max_score=%.3f (threshold=%.2f)",
+                    len(speech_buffer),
+                    max_score,
+                    self.oww_threshold,
+                )
             self.oww_model.reset()
             return
 
