@@ -10,8 +10,12 @@ from typing import (
     Optional,
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
+import io
 import logging
+import os
+import wave
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import webrtcvad
 from typing_extensions import Self
 
@@ -73,6 +77,7 @@ class WakeWordFilter(AudioIn, EasyResource):
     oww_model: Optional[Any]
     oww_model_name: Optional[str]
     oww_threshold: float
+    save_segments_dir: Optional[str]
 
     @classmethod
     def new(
@@ -164,6 +169,16 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True
 
+        # Optional: save each detected wake-word segment as a WAV to this dir.
+        save_dir = str(attrs.get("save_segments_dir", "")).strip()
+        if save_dir:
+            save_dir = os.path.expanduser(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
+            instance.save_segments_dir = save_dir
+            instance.logger.info(f"Saving wake-word segments to {save_dir}")
+        else:
+            instance.save_segments_dir = None
+
         return instance
 
     @classmethod
@@ -218,6 +233,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                 raise ValueError("min_speech_ms must be a whole number")
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
+
+        # Validate save_segments_dir
+        save_segments_dir: Any = attrs.get("save_segments_dir", None)
+        if save_segments_dir is not None and not isinstance(save_segments_dir, str):
+            raise ValueError("save_segments_dir must be a string")
 
         # Validate Vosk-specific config
         if detection_engine == "vosk":
@@ -407,6 +427,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             empty = AudioChunk()
                             empty.audio.audio_data = b""
                             yield empty
+                            self._save_segment(bytes(speech_segment.speech_buffer))
                             self.oww_model.reset()
                             oww_streaming = False
                             speech_segment.reset()
@@ -502,6 +523,25 @@ class WakeWordFilter(AudioIn, EasyResource):
         ):
             yield chunk
 
+    def _save_segment(self, pcm_bytes: bytes) -> None:
+        """Write a wake-word segment as a 16kHz mono PCM16 WAV. No-op if disabled."""
+        if not self.save_segments_dir or not pcm_bytes:
+            return
+        try:
+            ts = datetime.now().strftime("%Y%m%dT%H%M%S_%f")
+            path = os.path.join(self.save_segments_dir, f"wakeword_{ts}.wav")
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(AUDIO_SAMPLE_RATE_HZ)
+                w.writeframes(pcm_bytes)
+            with open(path, "wb") as f:
+                f.write(buf.getvalue())
+            self.logger.info("Saved wake-word segment: %s (%d bytes)", path, len(pcm_bytes))
+        except Exception as e:
+            self.logger.error("Failed to save wake-word segment: %s", e)
+
     async def _finalize_segment(
         self, speech_segment: _SpeechSegment, config: _SegmentThresholds
     ) -> AsyncGenerator[AudioChunk, None]:
@@ -512,11 +552,19 @@ class WakeWordFilter(AudioIn, EasyResource):
                 speech_segment.speech_frames,
                 len(speech_segment.speech_buffer),
             )
+            # Snapshot speech bytes before _run_detection consumes/resets;
+            # vosk_process_segment only yields chunks when the wake word matched,
+            # so any yield here means we should save the segment.
+            segment_bytes = bytes(speech_segment.speech_buffer)
+            matched = False
             async for chunk in self._run_detection(
                 speech_segment.speech_chunk_buffer,
                 speech_segment.speech_buffer,
             ):
+                matched = True
                 yield chunk
+            if matched:
+                self._save_segment(segment_bytes)
         else:
             self.logger.debug(
                 "Ignoring false positive: only %d frames", speech_segment.speech_frames
