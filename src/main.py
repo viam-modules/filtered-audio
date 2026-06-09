@@ -3,9 +3,11 @@ from viam.module.module import Module
 
 try:
     from models.wake_word_filter import WakeWordFilter  # noqa: F401
+    from models.wakeword_miss_sensor import WakewordMissSensor  # noqa: F401
 except ModuleNotFoundError:
     # when running as local module with run.sh
     from .models.wake_word_filter import WakeWordFilter  # noqa: F401
+    from .models.wakeword_miss_sensor import WakewordMissSensor  # noqa: F401
 
 
 if __name__ == "__main__":

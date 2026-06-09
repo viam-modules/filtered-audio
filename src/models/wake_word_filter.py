@@ -10,13 +10,19 @@ from typing import (
     Optional,
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
+import asyncio
+import base64
+import io
 import logging
 import time
+import uuid
+import wave
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
 
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
+from viam.components.sensor import Sensor
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
@@ -44,6 +50,7 @@ DEFAULT_SILENCE_DURATION_MS = (
     900  # milliseconds of silence before ending a speech segment
 )
 DEFAULT_MIN_SPEECH_DURATION_MS = 300  # min length of speech to process
+DEFAULT_OWW_THRESHOLD = 0.5  # OWW detection confidence threshold
 
 # WebRTC VAD requires 30ms frames: 480 samples * 2 bytes = 960 bytes at 16kHz
 FRAME_DURATION_MS = 30
@@ -73,7 +80,10 @@ class WakeWordFilter(AudioIn, EasyResource):
     detection_engine: str
     oww_model: Optional[Any]
     oww_model_name: Optional[str]
+    oww_model_path: Optional[str]
     oww_threshold: float
+    miss_sensor: Optional[Any]
+    near_miss_threshold: Optional[float]
     conversation_timeout_seconds: float
     _conversation_window_expires_at: float
 
@@ -136,13 +146,15 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Initialize OWW defaults
         instance.oww_model = None
         instance.oww_model_name = None
-        instance.oww_threshold = 0.5
+        instance.oww_threshold = DEFAULT_OWW_THRESHOLD
+        instance.oww_model_path = None
 
         if instance.detection_engine == "openwakeword":
+            instance.oww_model_path = str(attrs.get("oww_model_path", ""))
             setup_oww(
                 instance,
-                oww_model_path=str(attrs.get("oww_model_path", "")),
-                oww_threshold=float(attrs.get("oww_threshold", 0.5)),
+                oww_model_path=instance.oww_model_path,
+                oww_threshold=float(attrs.get("oww_threshold", DEFAULT_OWW_THRESHOLD)),
             )
         else:
             setup_vosk(
@@ -166,6 +178,19 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True
+
+        #Optional: wakeword miss sensor
+        miss_sensor_name = str(attrs.get("wakeword_miss_sensor", ""))
+        if miss_sensor_name:
+            sensor_dep = dependencies[Sensor.get_resource_name(miss_sensor_name)]
+            instance.miss_sensor = cast(Sensor, sensor_dep)
+            instance.logger.info("Wake-miss captures enabled → %s", miss_sensor_name)
+        else:
+            instance.miss_sensor = None
+        nm_thresh = attrs.get("near_miss_threshold", None)
+        instance.near_miss_threshold = (
+            float(nm_thresh) if nm_thresh is not None else None
+        )
 
         # Conversation mode: after a successful detection, treat subsequent
         # speech as wake-word-prefixed for this many seconds. 0 disables.
@@ -240,6 +265,36 @@ class WakeWordFilter(AudioIn, EasyResource):
             if conversation_timeout < 0:
                 raise ValueError(
                     f"conversation_timeout_seconds must be non-negative, got {conversation_timeout}"
+                )
+
+        # Validate wakeword_miss_sensor + near_miss_threshold. Both are optional,
+        # but if you wire the sensor you must also set a threshold
+        miss_sensor_name: Any = attrs.get("wakeword_miss_sensor", None)
+        if miss_sensor_name is not None:
+            if not isinstance(miss_sensor_name, str):
+                raise ValueError("wakeword_miss_sensor must be a string")
+            if miss_sensor_name:
+                deps.append(miss_sensor_name)
+        near_miss_threshold: Any = attrs.get("near_miss_threshold", None)
+        if near_miss_threshold is not None:
+            if not isinstance(near_miss_threshold, (int, float)):
+                raise ValueError("near_miss_threshold must be a number")
+            if near_miss_threshold < 0.0 or near_miss_threshold > 1.0:
+                raise ValueError("near_miss_threshold must be between 0.0 and 1.0")
+        if miss_sensor_name and near_miss_threshold is None:
+            raise ValueError(
+                "near_miss_threshold is required when wakeword_miss_sensor is set"
+            )
+        if miss_sensor_name and detection_engine != "openwakeword":
+            raise ValueError(
+                "wakeword_miss_sensor requires detection_engine='openwakeword' "
+            )
+        if near_miss_threshold is not None:
+            oww_thresh: Any = attrs.get("oww_threshold", DEFAULT_OWW_THRESHOLD)
+            if isinstance(oww_thresh, (int, float)) and near_miss_threshold >= oww_thresh:
+                raise ValueError(
+                    f"near_miss_threshold ({near_miss_threshold}) must be less than "
+                    f"oww_threshold ({oww_thresh})"
                 )
 
         # Validate Vosk-specific config
@@ -515,7 +570,8 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         OWW: detection and yielding both happen in `audio_generator` as audio
         streams in. Reaching here means the segment ended without a detection,
-        so just log the miss and reset model state for the next segment.
+        so log the miss, push the segment to the miss sensor if the peak
+        score crossed the near-miss threshold, and reset OWW state.
 
         Vosk: detection hasn't run yet — run inference on the full buffered
         segment now, then yield chunks if the wake word was found.
@@ -523,14 +579,12 @@ class WakeWordFilter(AudioIn, EasyResource):
         if self.detection_engine == "openwakeword":
             buf = self.oww_model.prediction_buffer.get(self.oww_model_name)
             max_score = max(buf) if buf else 0.0
-            # Only log near-misses (>= half threshold)
-            if max_score >= self.oww_threshold * 0.5:
-                self.logger.debug(
-                    "OWW near-miss: %d bytes, max_score=%.3f (threshold=%.2f)",
-                    len(speech_buffer),
-                    max_score,
-                    self.oww_threshold,
-                )
+            self.logger.debug(
+                "OWW: No detection (max_score=%.3f, threshold=%.2f)",
+                max_score,
+                self.oww_threshold,
+            )
+            await self._maybe_push_miss(bytes(speech_buffer), max_score)
             self.oww_model.reset()
             return
 
@@ -556,6 +610,67 @@ class WakeWordFilter(AudioIn, EasyResource):
             yielded = True
         if yielded:
             self._refresh_conversation_window()
+
+    async def _maybe_push_miss(self, pcm_bytes: bytes, max_score: float) -> None:
+        """
+        Push a near-miss segment to the wakeword-miss-sensor for cloud capture.
+
+        Fires only when:
+          - wakeword_miss_sensor is configured
+          - near_miss_threshold is configured
+          - near_miss_threshold <= max_score < oww_threshold
+        Gates on max_score BEFORE building the WAV to avoid wasted work on
+        the common silence case (max_score ≈ 0.001).
+        """
+        if self.miss_sensor is None or self.near_miss_threshold is None or not pcm_bytes:
+            return
+        if max_score < self.near_miss_threshold or max_score >= self.oww_threshold:
+            return
+        if self._in_conversation_window():
+            return
+        try:
+            duration_ms = (
+                len(pcm_bytes) / (AUDIO_SAMPLE_RATE_HZ * 2)
+            ) * 1000.0  # mono PCM16: 2 bytes/sample
+            capture_id = str(uuid.uuid4())
+            # Wrap raw PCM as a WAV (16kHz mono PCM16) and base64-encode so it
+            # can travel through the DoCommand proto Struct payload.
+            wav_buf = io.BytesIO()
+            with wave.open(wav_buf, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(AUDIO_SAMPLE_RATE_HZ)
+                w.writeframes(pcm_bytes)
+            wav_b64 = base64.b64encode(wav_buf.getvalue()).decode("ascii")
+            cmd = {
+                "command": "push_miss",
+                "capture_id": capture_id,
+                "wake_word": self.oww_model_name or "",
+                "max_oww_score": float(max_score),
+                "oww_threshold": float(self.oww_threshold),
+                "oww_model_path": self.oww_model_path or "",
+                "audio_bytes": len(pcm_bytes),
+                "duration_ms": duration_ms,
+                "audio_wav_b64": wav_b64,
+            }
+            # Fire-and-forget: the do_command roundtrip + cloud upload can take
+            # hundreds of ms, and awaiting here would freeze the mic stream
+            # generator. Run it as a background task so the generator keeps
+            # yielding chunks downstream.
+            asyncio.create_task(self._send_miss_capture(cmd, max_score, len(pcm_bytes)))
+        except Exception as e:
+            self.logger.error("Failed to prepare wake-miss capture: %s", e)
+
+    async def _send_miss_capture(
+        self, cmd: dict, max_score: float, pcm_len: int
+    ) -> None:
+        try:
+            await self.miss_sensor.do_command(cmd)
+            self.logger.info(
+                "Wake-miss captured (score=%.3f, %d bytes)", max_score, pcm_len
+            )
+        except Exception as e:
+            self.logger.error("Failed to push wake-miss to sensor: %s", e)
 
     async def _finalize_segment(
         self, speech_segment: _SpeechSegment, config: _SegmentThresholds
