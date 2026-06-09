@@ -600,6 +600,8 @@ class WakeWordFilter(AudioIn, EasyResource):
             return
         if max_score < self.near_miss_threshold or max_score >= self.oww_threshold:
             return
+        if self._in_conversation_window():
+            return
         try:
             duration_ms = (
                 len(pcm_bytes) / (AUDIO_SAMPLE_RATE_HZ * 2)
