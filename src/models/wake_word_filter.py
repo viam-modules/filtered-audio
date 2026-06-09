@@ -13,6 +13,9 @@ from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
 import base64
 import io
 import logging
+import time
+import uuid
+import wave
 from concurrent.futures import ThreadPoolExecutor
 import webrtcvad
 from typing_extensions import Self
@@ -259,6 +262,16 @@ class WakeWordFilter(AudioIn, EasyResource):
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
 
+        # Validate conversation_timeout_seconds
+        conversation_timeout: Any = attrs.get("conversation_timeout_seconds", None)
+        if conversation_timeout is not None:
+            if not isinstance(conversation_timeout, (int, float)):
+                raise ValueError("conversation_timeout_seconds must be a number")
+            if conversation_timeout < 0:
+                raise ValueError(
+                    f"conversation_timeout_seconds must be non-negative, got {conversation_timeout}"
+                )
+
         # Validate Vosk-specific config
         if detection_engine == "vosk":
             wake_words: Any = attrs.get("wake_words", [])
@@ -445,6 +458,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             empty = AudioChunk()
                             empty.audio.audio_data = b""
                             yield empty
+                            self._refresh_conversation_window()
                             self.oww_model.reset()
                             oww_streaming = False
                             speech_segment.reset()
