@@ -10,16 +10,17 @@ from typing import (
     Optional,
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
+import base64
 import io
 import logging
-import os
+import uuid
 import wave
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 import webrtcvad
 from typing_extensions import Self
 
 from viam.components.audio_in import AudioIn, AudioResponse as AudioChunk
+from viam.components.sensor import Sensor
 from viam.proto.app.robot import ComponentConfig
 from viam.proto.common import ResourceName
 from viam.resource.base import ResourceBase
@@ -77,7 +78,9 @@ class WakeWordFilter(AudioIn, EasyResource):
     oww_model: Optional[Any]
     oww_model_name: Optional[str]
     oww_threshold: float
-    save_segments_dir: Optional[str]
+    miss_sensor: Optional[Any]  # WakewordMissSensor; Any to avoid circular import
+    near_miss_threshold: Optional[float]
+    oww_model_path: Optional[str]
 
     @classmethod
     def new(
@@ -139,11 +142,13 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance.oww_model = None
         instance.oww_model_name = None
         instance.oww_threshold = 0.5
+        instance.oww_model_path = None
 
         if instance.detection_engine == "openwakeword":
+            instance.oww_model_path = str(attrs.get("oww_model_path", ""))
             setup_oww(
                 instance,
-                oww_model_path=str(attrs.get("oww_model_path", "")),
+                oww_model_path=instance.oww_model_path,
                 oww_threshold=float(attrs.get("oww_threshold", 0.5)),
             )
         else:
@@ -169,15 +174,29 @@ class WakeWordFilter(AudioIn, EasyResource):
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True
 
-        # Optional: save each detected wake-word segment as a WAV to this dir.
-        save_dir = str(attrs.get("save_segments_dir", "")).strip()
-        if save_dir:
-            save_dir = os.path.expanduser(save_dir)
-            os.makedirs(save_dir, exist_ok=True)
-            instance.save_segments_dir = save_dir
-            instance.logger.info(f"Saving wake-word segments to {save_dir}")
-        else:
-            instance.save_segments_dir = None
+        # Optional: wake-miss capture sensor. When the OWW max_score crosses
+        # near_miss_threshold but doesn't trigger detection, push the segment
+        # to the sensor for cloud capture + Data tab indexing.
+        miss_sensor_name = str(attrs.get("wakeword_miss_sensor", "")).strip()
+        instance.miss_sensor = None
+        if miss_sensor_name:
+            try:
+                instance.miss_sensor = cast(
+                    Sensor, dependencies[Sensor.get_resource_name(miss_sensor_name)]
+                )
+                instance.logger.info(
+                    "Wake-miss captures enabled → %s", miss_sensor_name
+                )
+            except KeyError:
+                instance.logger.warning(
+                    "wakeword_miss_sensor %r not found in dependencies; "
+                    "wake-miss captures disabled",
+                    miss_sensor_name,
+                )
+        nm_thresh = attrs.get("near_miss_threshold", None)
+        instance.near_miss_threshold = (
+            float(nm_thresh) if nm_thresh is not None else None
+        )
 
         return instance
 
@@ -234,10 +253,20 @@ class WakeWordFilter(AudioIn, EasyResource):
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
 
-        # Validate save_segments_dir
-        save_segments_dir: Any = attrs.get("save_segments_dir", None)
-        if save_segments_dir is not None and not isinstance(save_segments_dir, str):
-            raise ValueError("save_segments_dir must be a string")
+        # Validate wakeword_miss_sensor + near_miss_threshold (both optional;
+        # both required together for captures to actually fire).
+        miss_sensor_name: Any = attrs.get("wakeword_miss_sensor", None)
+        if miss_sensor_name is not None:
+            if not isinstance(miss_sensor_name, str):
+                raise ValueError("wakeword_miss_sensor must be a string")
+            if miss_sensor_name:
+                deps.append(miss_sensor_name)
+        near_miss_threshold: Any = attrs.get("near_miss_threshold", None)
+        if near_miss_threshold is not None:
+            if not isinstance(near_miss_threshold, (int, float)):
+                raise ValueError("near_miss_threshold must be a number")
+            if near_miss_threshold < 0.0 or near_miss_threshold > 1.0:
+                raise ValueError("near_miss_threshold must be between 0.0 and 1.0")
 
         # Validate Vosk-specific config
         if detection_engine == "vosk":
@@ -502,7 +531,8 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         OWW: detection and yielding both happen in `audio_generator` as audio
         streams in. Reaching here means the segment ended without a detection,
-        so just log the miss and reset model state for the next segment.
+        so log the miss, push the segment to the miss sensor if the peak
+        score crossed the near-miss threshold, and reset OWW state.
 
         Vosk: detection hasn't run yet — run inference on the full buffered
         segment now, then yield chunks if the wake word was found.
@@ -515,6 +545,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                 max_score,
                 self.oww_threshold,
             )
+            await self._maybe_push_miss(bytes(speech_buffer), max_score)
             self.oww_model.reset()
             return
         # Vosk: run inference on the complete buffered segment
@@ -523,24 +554,52 @@ class WakeWordFilter(AudioIn, EasyResource):
         ):
             yield chunk
 
-    def _save_segment(self, pcm_bytes: bytes) -> None:
-        """Write a wake-word segment as a 16kHz mono PCM16 WAV. No-op if disabled."""
-        if not self.save_segments_dir or not pcm_bytes:
+    async def _maybe_push_miss(self, pcm_bytes: bytes, max_score: float) -> None:
+        """
+        Push a near-miss segment to the wakeword-miss-sensor for cloud capture.
+
+        Fires only when:
+          - wakeword_miss_sensor is configured
+          - near_miss_threshold is configured
+          - near_miss_threshold <= max_score < oww_threshold
+        Gates on max_score BEFORE building the WAV to avoid wasted work on
+        the common silence case (max_score ≈ 0.001).
+        """
+        if self.miss_sensor is None or self.near_miss_threshold is None or not pcm_bytes:
+            return
+        if max_score < self.near_miss_threshold or max_score >= self.oww_threshold:
             return
         try:
-            ts = datetime.now().strftime("%Y%m%dT%H%M%S_%f")
-            path = os.path.join(self.save_segments_dir, f"wakeword_{ts}.wav")
-            buf = io.BytesIO()
-            with wave.open(buf, "wb") as w:
+            duration_ms = (
+                len(pcm_bytes) / (AUDIO_SAMPLE_RATE_HZ * 2)
+            ) * 1000.0  # mono PCM16: 2 bytes/sample
+            capture_id = str(uuid.uuid4())
+            # Wrap raw PCM as a WAV (16kHz mono PCM16) and base64-encode so it
+            # can travel through the DoCommand proto Struct payload.
+            wav_buf = io.BytesIO()
+            with wave.open(wav_buf, "wb") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
                 w.setframerate(AUDIO_SAMPLE_RATE_HZ)
                 w.writeframes(pcm_bytes)
-            with open(path, "wb") as f:
-                f.write(buf.getvalue())
-            self.logger.info("Saved wake-word segment: %s (%d bytes)", path, len(pcm_bytes))
+            wav_b64 = base64.b64encode(wav_buf.getvalue()).decode("ascii")
+            cmd = {
+                "command": "push_miss",
+                "capture_id": capture_id,
+                "wake_word": self.oww_model_name or "",
+                "max_oww_score": float(max_score),
+                "oww_threshold": float(self.oww_threshold),
+                "oww_model_path": self.oww_model_path or "",
+                "audio_bytes": len(pcm_bytes),
+                "duration_ms": duration_ms,
+                "audio_wav_b64": wav_b64,
+            }
+            await self.miss_sensor.do_command(cmd)
+            self.logger.info(
+                "Wake-miss captured (score=%.3f, %d bytes)", max_score, len(pcm_bytes)
+            )
         except Exception as e:
-            self.logger.error("Failed to save wake-word segment: %s", e)
+            self.logger.error("Failed to push wake-miss to sensor: %s", e)
 
     async def _finalize_segment(
         self, speech_segment: _SpeechSegment, config: _SegmentThresholds
@@ -552,19 +611,11 @@ class WakeWordFilter(AudioIn, EasyResource):
                 speech_segment.speech_frames,
                 len(speech_segment.speech_buffer),
             )
-            # Snapshot speech bytes before _run_detection consumes/resets;
-            # vosk_process_segment only yields chunks when the wake word matched,
-            # so any yield here means we should save the segment.
-            segment_bytes = bytes(speech_segment.speech_buffer)
-            matched = False
             async for chunk in self._run_detection(
                 speech_segment.speech_chunk_buffer,
                 speech_segment.speech_buffer,
             ):
-                matched = True
                 yield chunk
-            if matched:
-                self._save_segment(segment_bytes)
         else:
             self.logger.debug(
                 "Ignoring false positive: only %d frames", speech_segment.speech_frames

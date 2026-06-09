@@ -1196,6 +1196,10 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf._process_vad_frame = types.MethodType(WakeWordFilter._process_vad_frame, wf)
     wf._run_detection = types.MethodType(WakeWordFilter._run_detection, wf)
     wf._finalize_segment = types.MethodType(WakeWordFilter._finalize_segment, wf)
+    # Wake-miss push: tests don't exercise it, but _run_detection awaits it.
+    wf._maybe_push_miss = AsyncMock()
+    wf.miss_sensor = None
+    wf.near_miss_threshold = None
     return wf
 
 

@@ -10,6 +10,12 @@
       "model": "viam:filtered-audio:wake-word-filter",
       "markdown_link": "README.md#model-viamfiltered-audiowake-word-filter",
       "short_description": "filters audio stream based on wake word detection"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "model": "viam:filtered-audio:wakeword-miss-sensor",
+      "markdown_link": "README.md#model-viamfiltered-audiowakeword-miss-sensor",
+      "short_description": "captures wake-word near-miss audio + metadata to the Viam Data tab"
     }
   ],
   "entrypoint": "dist/main",
