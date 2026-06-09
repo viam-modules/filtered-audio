@@ -1264,6 +1264,37 @@ async def test_oww_does_not_yield_when_below_threshold():
 
 
 @pytest.mark.asyncio
+async def test_oww_no_detection_calls_maybe_push_miss():
+    """When OWW doesn't fire on a completed speech segment, _maybe_push_miss
+    must be awaited with the buffered speech bytes + the peak prediction-
+    buffer score. Guards against the call site being silently dropped."""
+    wf = make_oww_filter(threshold=0.5)
+
+    wf.vad.is_speech.side_effect = [True] * 15 + [False] * 35
+    wf.oww_model.predict.return_value = {"okay_gambit": 0.3}
+    wf.oww_model.prediction_buffer = {"okay_gambit": [0.1, 0.3, 0.2]}
+
+    speech_chunks = [make_audio_chunk(960) for _ in range(15)]
+    silence_chunks = [make_audio_chunk(960) for _ in range(35)]
+    wf.microphone_client.get_audio.return_value = async_iter(
+        speech_chunks + silence_chunks
+    )
+    wf.microphone_client.get_properties.return_value = Mock(
+        sample_rate_hz=16000, num_channels=1
+    )
+
+    stream = await WakeWordFilter.get_audio(wf, "pcm16", 0, 0)
+    await collect_stream(stream)
+
+    wf._maybe_push_miss.assert_awaited_once()
+    args, _ = wf._maybe_push_miss.call_args
+    pcm_bytes, max_score = args
+    assert isinstance(pcm_bytes, bytes)
+    assert len(pcm_bytes) > 0
+    assert max_score == 0.3  # peak of prediction_buffer
+
+
+@pytest.mark.asyncio
 async def test_oww_resets_model_after_segment():
     """Test OWW model is reset after each speech segment."""
     wf = make_oww_filter(threshold=0.5)
@@ -1917,6 +1948,109 @@ def test_validate_config_rejects_non_number_conversation_timeout(mock_env):
     }
     with pytest.raises(ValueError, match="conversation_timeout_seconds must be a number"):
         WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_string_miss_sensor(mock_env):
+    """wakeword_miss_sensor must be a string."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "wakeword_miss_sensor": 42,
+        "near_miss_threshold": 0.3,
+    }
+    with pytest.raises(ValueError, match="wakeword_miss_sensor must be a string"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_out_of_range_near_miss_threshold(mock_env):
+    """near_miss_threshold must be between 0.0 and 1.0."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "near_miss_threshold": 1.5,
+    }
+    with pytest.raises(ValueError, match="near_miss_threshold must be between"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_rejects_non_number_near_miss_threshold(mock_env):
+    """near_miss_threshold must be a number."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "near_miss_threshold": "half",
+    }
+    with pytest.raises(ValueError, match="near_miss_threshold must be a number"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_miss_sensor_requires_near_miss_threshold(mock_env):
+    """wakeword_miss_sensor without near_miss_threshold is a silent dead config."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "wakeword_miss_sensor": "miss-sensor",
+    }
+    with pytest.raises(ValueError, match="near_miss_threshold is required"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_miss_sensor_requires_openwakeword(mock_env):
+    """wakeword_miss_sensor only makes sense with openwakeword (Vosk has no score)."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "vosk",
+        "wake_words": ["robot"],
+        "wakeword_miss_sensor": "miss-sensor",
+        "near_miss_threshold": 0.3,
+    }
+    with pytest.raises(ValueError, match="requires detection_engine='openwakeword'"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_near_miss_threshold_must_be_below_oww_threshold(mock_env):
+    """near_miss_threshold >= oww_threshold makes the capture band empty."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "oww_threshold": 0.6,
+        "wakeword_miss_sensor": "miss-sensor",
+        "near_miss_threshold": 0.7,
+    }
+    with pytest.raises(ValueError, match="must be less than oww_threshold"):
+        WakeWordFilter.validate_config(config)
+
+
+def test_validate_config_miss_sensor_declared_as_dep(mock_env):
+    """When wakeword_miss_sensor is set, it must appear in the dep list."""
+    config = Mock()
+    config.attributes = Mock()
+    mock_env["struct_to_dict"].return_value = {
+        "source_microphone": "mic",
+        "detection_engine": "openwakeword",
+        "oww_model_path": "/tmp/model.onnx",
+        "wakeword_miss_sensor": "miss-sensor",
+        "near_miss_threshold": 0.3,
+    }
+    deps, _ = WakeWordFilter.validate_config(config)
+    assert "miss-sensor" in deps
 
 
 def test_new_uses_default_conversation_timeout(mock_env):
