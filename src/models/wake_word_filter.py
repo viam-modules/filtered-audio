@@ -78,7 +78,12 @@ class WakeWordFilter(AudioIn, EasyResource):
     detection_engine: str
     oww_model: Optional[Any]
     oww_model_name: Optional[str]
+    oww_model_path: Optional[str]
     oww_threshold: float
+    miss_sensor: Optional[Any]
+    near_miss_threshold: Optional[float]
+    conversation_timeout_seconds: float
+    _conversation_window_expires_at: float
 
     @classmethod
     def new(
@@ -262,7 +267,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             if min_speech_ms <= 0:
                 raise ValueError("min_speech_ms must be positive")
 
-        # Validate conversation_timeout_seconds
         conversation_timeout: Any = attrs.get("conversation_timeout_seconds", None)
         if conversation_timeout is not None:
             if not isinstance(conversation_timeout, (int, float)):

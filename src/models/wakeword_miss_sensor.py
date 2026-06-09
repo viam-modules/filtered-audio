@@ -18,14 +18,10 @@ NoCaptureToStoreError when empty (so the Viam data manager skips the poll
 instead of writing a blank row).
 """
 
-import asyncio
 import base64
-import io
 import logging
 import os
 import uuid
-import wave
-from datetime import datetime, timezone
 from typing import (
     Any,
     ClassVar,
@@ -52,26 +48,13 @@ from viam.utils import from_dm_from_extra, struct_to_dict
 
 AUDIO_SAMPLE_RATE_HZ = 16000
 
-# Upload metadata constants. We tag the binary as if it came from an audio_in
-# component so wake-miss WAVs sit alongside other voice audio in the Data tab.
-_UPLOAD_COMPONENT_TYPE = "rdk:component:audio_in"
-_UPLOAD_METHOD_NAME = "GetAudio"
+_UPLOAD_COMPONENT_TYPE = "rdk:component:sensor"
+_UPLOAD_METHOD_NAME = "Readings"
 _UPLOAD_FILE_EXT = ".wav"
 
 _ENV_PART_ID = "VIAM_MACHINE_PART_ID"
 
 _DEFAULT_MAX_QUEUE_SIZE = 1000
-
-
-def _wrap_pcm16_as_wav(pcm: bytes, sample_rate_hz: int = AUDIO_SAMPLE_RATE_HZ) -> bytes:
-    """Prepend a 44-byte RIFF/WAVE header to raw mono 16-bit PCM samples."""
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sample_rate_hz)
-        w.writeframes(pcm)
-    return buf.getvalue()
 
 
 class WakewordMissSensor(Sensor, EasyResource):
@@ -89,7 +72,6 @@ class WakewordMissSensor(Sensor, EasyResource):
 
     # Runtime state.
     _pending: List[Mapping[str, Any]]
-    _lock: asyncio.Lock
     _viam_client: Optional[ViamClient]
     _part_id: str
 
@@ -100,37 +82,25 @@ class WakewordMissSensor(Sensor, EasyResource):
         dependencies: Mapping[ResourceName, ResourceBase],
     ) -> Self:
         instance = cls(config.name)
-        return instance.reconfigure_sync(config, dependencies)
-
-    def reconfigure_sync(
-        self,
-        config: ComponentConfig,
-        dependencies: Mapping[ResourceName, ResourceBase],
-    ) -> Self:
-        """Sync version of reconfigure used by `new`; real reconfigure() is async."""
         attrs = struct_to_dict(config.attributes)
-        self.logger = getLogger(self.__class__.__name__)
-        self.dataset_ids = list(attrs.get("dataset_ids") or [])
+        instance.logger = getLogger(cls.__name__)
+        instance.dataset_ids = list(attrs.get("dataset_ids") or [])
         cno = attrs.get("component_name", "")
-        self.component_name_override = str(cno).strip() or None
+        instance.component_name_override = str(cno).strip() or None
         mqs = attrs.get("max_queue_size", _DEFAULT_MAX_QUEUE_SIZE)
-        self.max_queue_size = int(mqs) if mqs else _DEFAULT_MAX_QUEUE_SIZE
+        instance.max_queue_size = int(mqs) if mqs else _DEFAULT_MAX_QUEUE_SIZE
 
-        self._pending = []
-        # Sticky "last reading" for the Viam app's live preview / Test panel.
-        # Data-manager polls drain `_pending`; non-DM polls just see the most
-        # recent reading so the UI doesn't flicker.
-        self._last_reading: Optional[Mapping[str, Any]] = None
-        self._lock = asyncio.Lock()
-        self._viam_client = None
-        self._part_id = os.getenv(_ENV_PART_ID, "")
+        instance._pending = []
+        instance._last_reading = None
+        instance._viam_client = None
+        instance._part_id = os.getenv(_ENV_PART_ID, "")
 
-        if not self._part_id:
-            self.logger.warning(
+        if not instance._part_id:
+            instance.logger.warning(
                 "%s not set — binary uploads disabled, tabular queue still works",
                 _ENV_PART_ID,
             )
-        return self
+        return instance
 
     @classmethod
     def validate_config(
@@ -142,9 +112,6 @@ class WakewordMissSensor(Sensor, EasyResource):
             isinstance(ds, list) and all(isinstance(x, str) for x in ds)
         ):
             raise ValueError("dataset_ids must be a list of strings")
-        cn = attrs.get("component_name", None)
-        if cn is not None and not isinstance(cn, str):
-            raise ValueError("component_name must be a string")
         mqs = attrs.get("max_queue_size", None)
         if mqs is not None:
             if not isinstance(mqs, (int, float)) or mqs % 1 != 0:
@@ -180,19 +147,18 @@ class WakewordMissSensor(Sensor, EasyResource):
         **kwargs,
     ) -> Mapping[str, Any]:
         from_dm = from_dm_from_extra(extra)
-        async with self._lock:
-            if from_dm:
-                # Data manager: strict queue-pop semantics so each row gets
-                # captured exactly once.
-                if not self._pending:
-                    raise NoCaptureToStoreError()
-                return self._pending.pop(0)
-            # Non-data-manager caller (Viam app live preview, Test panel,
-            # manual SDK call): show the most recent reading without consuming
-            # the queue. Avoids flicker in the UI.
-            if self._last_reading is not None:
-                return self._last_reading
-            raise NoCaptureToStoreError()
+        if from_dm:
+            # Data manager: strict queue-pop semantics so each row gets
+            # captured exactly once.
+            if not self._pending:
+                raise NoCaptureToStoreError()
+            return self._pending.pop(0)
+        # Non-data-manager caller (Viam app live preview, Test panel,
+        # manual SDK call): show the most recent reading without consuming
+        # the queue. Avoids flicker in the UI.
+        if self._last_reading is not None:
+            return self._last_reading
+        raise NoCaptureToStoreError()
 
     async def do_command(
         self,
@@ -233,17 +199,6 @@ class WakewordMissSensor(Sensor, EasyResource):
 
             component_name = self.component_name_override or self.name
             try:
-                created_at = reading.get("created_at")
-                captured_at = datetime.now(timezone.utc)
-                if isinstance(created_at, str):
-                    try:
-                        start_dt = datetime.fromisoformat(
-                            created_at.replace("Z", "+00:00")
-                        )
-                    except ValueError:
-                        start_dt = captured_at
-                else:
-                    start_dt = captured_at
                 bin_id = await client.data_client.binary_data_capture_upload(
                     binary_data=wav_bytes,
                     part_id=self._part_id,
@@ -253,7 +208,6 @@ class WakewordMissSensor(Sensor, EasyResource):
                     file_extension=_UPLOAD_FILE_EXT,
                     tags=tags,
                     dataset_ids=self.dataset_ids or None,
-                    data_request_times=(start_dt, captured_at),
                 )
             except Exception as e:
                 self.logger.warning(
@@ -272,19 +226,19 @@ class WakewordMissSensor(Sensor, EasyResource):
             "duration_ms": float(reading.get("duration_ms", 0.0)),
         }
 
-        async with self._lock:
-            self._pending.append(row)
-            self._last_reading = row
-            over = len(self._pending) - self.max_queue_size
-            if over > 0:
-                del self._pending[:over]
-                self.logger.warning(
-                    "queue over max_queue_size=%d, dropped %d oldest reading(s)",
-                    self.max_queue_size,
-                    over,
-                )
-            depth = len(self._pending)
-        self.logger.debug("queued reading (capture_id=%s, depth=%d)", capture_id, depth)
+        self._pending.append(row)
+        self._last_reading = row
+        over = len(self._pending) - self.max_queue_size
+        if over > 0:
+            del self._pending[:over]
+            self.logger.warning(
+                "queue over max_queue_size=%d, dropped %d oldest reading(s)",
+                self.max_queue_size,
+                over,
+            )
+        self.logger.debug(
+            "queued reading (capture_id=%s, depth=%d)", capture_id, len(self._pending)
+        )
         return capture_id, bin_id
 
     async def close(self):
