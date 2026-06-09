@@ -47,6 +47,7 @@ The following attributes are available for the `viam:filtered-audio:wake-word-fi
 | `vad_aggressiveness` | int | **Optional** | Sensitivity of the webRTC VAD (voice activity detection). A higher number is more restrictive in reporting speech, and missed detection rates go up. A lower number is less restrictive but may report background noise as speech. Range: 0-3. Default: 3.
 | `silence_duration_ms` | int | **Optional** | Milliseconds of continuous silence needed before speech is considered finished. Default: 900
 | `min_speech_ms` | int | **Optional** | The minimum length (in milliseconds) a speech segment must be before it is treated as valid speech. Shorter sounds are ignored. Default: 300
+| `conversation_timeout_seconds` | float | **Optional** | After a wake word fires, stream all subsequent speech for this many seconds since the last yielded utterance. Lets the user ask follow-up questions without re-saying the wake word. Each yielded segment resets the timer. Set to `0` to disable. Default: 0
 
 #### Vosk Attributes
 
