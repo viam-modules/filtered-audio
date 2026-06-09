@@ -67,9 +67,8 @@ These attributes apply when `detection_engine` is set to `openwakeword`.
 |---------------|--------|-----------|----------------------------|
 | `oww_model_path` | string | **Required** | Path or URL to a custom `.onnx` wakeword model file. Local paths and HTTP/HTTPS URLs are supported. URL models are downloaded and cached in `VIAM_MODULE_DATA`.
 | `oww_threshold` | float | **Optional** | Detection confidence threshold (0.0-1.0). A higher value requires more confidence before triggering, reducing false positives. Default: 0.5
-| `wakeword_miss_sensor` | string | **Optional** | Resource name of a `viam:filtered-audio:wakeword-miss-sensor` to receive near-miss captures (audio segments where OWW's peak score crossed `near_miss_threshold` but stayed below `oww_threshold`). See [the sensor section](#model-viamfiltered-audiowakeword-miss-sensor). If unset, miss capture is disabled.
-| `near_miss_threshold` | float | **Optional** | Lower bound for the "near miss" band (0.0-1.0). A captured segment must satisfy `near_miss_threshold ≤ max_oww_score < oww_threshold`. Required for miss capture to fire; if unset, no captures happen even when the sensor dep is set.
-
+| `wakeword_miss_sensor` | string | **Optional** | Resource name of a `viam:filtered-audio:wakeword-miss-sensor` to receive near-miss captures. See [the sensor section](#model-viamfiltered-audiowakeword-miss-sensor).
+| `near_miss_threshold` | float | **Optional** | Lower bound for the "near miss" band (0.0-1.0). A captured segment must satisfy `near_miss_threshold ≤ max_oww_score < oww_threshold`. Only meaningful when `wakeword_miss_sensor` is also set.
 
 ### Source Microphone Requirements
 
@@ -272,8 +271,7 @@ data manager. Both **capture and sync** must be enabled on the sensor.
 | `oww_model_path` | string      | Path or URL of the OWW model in use.                                                 |
 | `audio_bytes`    | int         | Raw PCM size of the captured segment.                                                |
 | `duration_ms`    | float       | Segment duration in milliseconds.                                                    |
-| `created_at`     | RFC3339Nano | Set by the filter at miss time.                                                      |
-| `captured_at`    | RFC3339Nano | Set by the sensor when the row was appended to the queue.                            |
+| `captured_at`    | RFC3339Nano | UTC timestamp set by the sensor when the row was queued.                             |
 
 The audio is always 16 kHz mono PCM16 (the only format the wake-word filter
 accepts), so sample rate / channels / encoding are not stored on the row.

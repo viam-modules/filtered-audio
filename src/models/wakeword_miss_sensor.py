@@ -22,6 +22,7 @@ import base64
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from typing import (
     Any,
     ClassVar,
@@ -199,6 +200,7 @@ class WakewordMissSensor(Sensor, EasyResource):
 
             component_name = self.component_name_override or self.name
             try:
+                now = datetime.now(timezone.utc)
                 bin_id = await client.data_client.binary_data_capture_upload(
                     binary_data=wav_bytes,
                     part_id=self._part_id,
@@ -208,6 +210,7 @@ class WakewordMissSensor(Sensor, EasyResource):
                     file_extension=_UPLOAD_FILE_EXT,
                     tags=tags,
                     dataset_ids=self.dataset_ids or None,
+                    data_request_times=(now, now),
                 )
             except Exception as e:
                 self.logger.warning(
@@ -224,6 +227,7 @@ class WakewordMissSensor(Sensor, EasyResource):
             "oww_model_path": str(reading.get("oww_model_path") or ""),
             "audio_bytes": int(reading.get("audio_bytes", 0)),
             "duration_ms": float(reading.get("duration_ms", 0.0)),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
         }
 
         self._pending.append(row)
