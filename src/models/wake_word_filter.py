@@ -10,6 +10,7 @@ from typing import (
     Optional,
 )
 from ._speech_segment import _SpeechState, _SpeechSegment, _SegmentThresholds
+from ._broadcast import SegmentBroadcaster
 import asyncio
 import base64
 import io
@@ -86,6 +87,9 @@ class WakeWordFilter(AudioIn, EasyResource):
     near_miss_threshold: Optional[float]
     conversation_timeout_seconds: float
     _conversation_window_expires_at: float
+    _broadcaster: SegmentBroadcaster
+    _pipeline_task: Optional["asyncio.Task"]
+    _timer_tasks: set
 
     @classmethod
     def new(
@@ -178,6 +182,12 @@ class WakeWordFilter(AudioIn, EasyResource):
 
         # Detection pause state (for muting during TTS playback)
         instance.detection_running = True
+
+        # Multi-client support: one shared detection pipeline (started lazily
+        # by get_audio) broadcasts segments to per-subscriber queues.
+        instance._broadcaster = SegmentBroadcaster(instance.logger)
+        instance._pipeline_task = None
+        instance._timer_tasks = set()
 
         #Optional: wakeword miss sensor
         miss_sensor_name = str(attrs.get("wakeword_miss_sensor", ""))
@@ -370,12 +380,17 @@ class WakeWordFilter(AudioIn, EasyResource):
         """
         Stream audio, yielding buffered audio chunks when a wake word detected.
 
-        Uses WebRTC VAD to detect speech, then Vosk or OWW to detect wake words
+        Uses WebRTC VAD to detect speech, then Vosk or OWW to detect wake words.
+
+        Detection runs ONCE per component, in a shared pipeline task, no
+        matter how many clients are streaming: each get_audio call registers
+        a subscriber queue that receives a copy of every detected segment.
 
         Args:
             codec: Audio codec (should be "pcm16")
-            duration_seconds: Duration (use 0 for continuous)
-            previous_timestamp_ns: Previous timestamp (use 0 to start from now)
+            duration_seconds: How long this caller's stream stays open (0 =
+                continuous). Applied per-subscriber; the shared pipeline
+                keeps running for other subscribers.
 
         Yields:
             AudioResponse chunks
@@ -389,19 +404,49 @@ class WakeWordFilter(AudioIn, EasyResource):
                 f"Wake word filter only supports PCM16 codec, got: {codec}"
             )
 
-        async def audio_generator() -> AsyncGenerator[AudioChunk, None]:
-            self.logger.info(
-                f"Starting speech detection with VAD... (duration_seconds={duration_seconds})"
-            )
 
-            await self._validate_mic_properties()
+        await self._validate_mic_properties()
 
-            mic_stream = await self.microphone_client.get_audio(
-                codec, duration_seconds, previous_timestamp_ns
-            )
-            self.logger.info(
-                f"Microphone stream started (requested duration: {duration_seconds}s)"
-            )
+        sub = self._broadcaster.subscribe()
+        self._ensure_pipeline_running()
+
+        if duration_seconds and duration_seconds > 0:
+            # Honor duration for this caller only: its stream ends after the
+            # requested time while the shared pipeline keeps serving others.
+            async def _expire() -> None:
+                await asyncio.sleep(duration_seconds)
+                self._broadcaster.end_subscriber(sub)
+
+            # The loop holds only a weak ref to tasks; keep a strong one so
+            # the timer can't be garbage-collected mid-sleep.
+            task = asyncio.create_task(_expire())
+            self._timer_tasks.add(task)
+            task.add_done_callback(self._timer_tasks.discard)
+
+        return StreamWithIterator(self._broadcaster.stream(sub))
+
+    def _ensure_pipeline_running(self) -> None:
+        """Start the shared detection pipeline if it isn't already running."""
+        if self._pipeline_task is None or self._pipeline_task.done():
+            self._pipeline_task = asyncio.create_task(self._run_pipeline())
+
+    async def _run_pipeline(self) -> None:
+        """The single shared capture → VAD → detection pipeline.
+
+        Exactly one instance runs per component regardless of subscriber
+        count. Output segments are fanned out via
+        _broadcast.
+
+        Ends on mic-stream end/error, shutdown, or when the last subscriber
+        disconnects. It always signals _STREAM_END on the way out, so any
+        remaining subscribers terminate cleanly; their clients reconnect,
+        which starts a fresh pipeline.
+        """
+        try:
+            self.logger.info("Starting speech detection with VAD...")
+
+            mic_stream = await self.microphone_client.get_audio("pcm16", 0, 0)
+            self.logger.info("Microphone stream started (continuous)")
 
             config = _SegmentThresholds(
                 max_silence_frames=self.silence_duration_ms // FRAME_DURATION_MS,
@@ -412,12 +457,16 @@ class WakeWordFilter(AudioIn, EasyResource):
             state = _SpeechState.IDLE
             vad_audio_buffer = bytearray()
             # OWW: True once detection has fired in the current segment. Chunks
-            # are yielded as they arrive instead of buffered until segment end.
+            # are broadcast as they arrive instead of buffered until segment end.
             oww_streaming = False
 
             async for audio_chunk in mic_stream:
                 if self.is_shutting_down:
-                    self.logger.info("Stream ending due to shutdown")
+                    self.logger.info("Pipeline ending due to shutdown")
+                    break
+
+                if not self._broadcaster.has_subscribers:
+                    self.logger.info("Pipeline ending: no subscribers")
                     break
 
                 # Skip processing when detection is paused (e.g., during TTS)
@@ -426,7 +475,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                         # Mid-stream pause — emit sentinel so downstream closes its session
                         empty = AudioChunk()
                         empty.audio.audio_data = b""
-                        yield empty
+                        self._broadcaster.broadcast(empty)
                         self.oww_model.reset()
                         oww_streaming = False
                     if (
@@ -462,7 +511,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                             for buffered in speech_segment.speech_chunk_buffer:
                                 if buffered is audio_chunk:
                                     current_chunk_yielded = True
-                                yield buffered
+                                self._broadcaster.broadcast(buffered)
                             oww_streaming = True
                         else:
                             # False positive during silence — clear flag and OWW
@@ -476,13 +525,13 @@ class WakeWordFilter(AudioIn, EasyResource):
 
                     if segment_complete:
                         if oww_streaming:
-                            # Yield current chunk before sentinel if not already streamed
+                            # Broadcast current chunk before sentinel if not already streamed
                             if not current_chunk_yielded:
-                                yield audio_chunk
+                                self._broadcaster.broadcast(audio_chunk)
                                 current_chunk_yielded = True
                             empty = AudioChunk()
                             empty.audio.audio_data = b""
-                            yield empty
+                            self._broadcaster.broadcast(empty)
                             self._refresh_conversation_window()
                             self.oww_model.reset()
                             oww_streaming = False
@@ -492,13 +541,13 @@ class WakeWordFilter(AudioIn, EasyResource):
                             async for chunk in self._finalize_segment(
                                 speech_segment, config
                             ):
-                                yield chunk
+                                self._broadcaster.broadcast(chunk)
                         state = _SpeechState.IDLE
                         break
 
-                # If streaming and this chunk arrived after detection, yield it now
+                # If streaming and this chunk arrived after detection, broadcast it now
                 if oww_streaming and not current_chunk_yielded:
-                    yield audio_chunk
+                    self._broadcaster.broadcast(audio_chunk)
 
             # Process any remaining buffered audio when stream ends
             if state in (_SpeechState.ACTIVE, _SpeechState.TRAILING):
@@ -506,7 +555,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                     # Mid-stream when mic ended — emit sentinel and clean up
                     empty = AudioChunk()
                     empty.audio.audio_data = b""
-                    yield empty
+                    self._broadcaster.broadcast(empty)
                     self.oww_model.reset()
                 elif speech_segment.speech_frames >= config.min_speech_frames:
                     self.logger.debug(
@@ -517,7 +566,7 @@ class WakeWordFilter(AudioIn, EasyResource):
                         speech_segment.speech_chunk_buffer,
                         speech_segment.speech_buffer,
                     ):
-                        yield chunk
+                        self._broadcaster.broadcast(chunk)
                 else:
                     self.logger.debug(
                         "Stream ended: ignoring buffered audio (only %d frames, likely false positive)",
@@ -525,8 +574,12 @@ class WakeWordFilter(AudioIn, EasyResource):
                     )
                     if self.detection_engine == "openwakeword":
                         self.oww_model.reset()
-
-        return StreamWithIterator(audio_generator())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self.logger.error("Detection pipeline failed: %s", e)
+        finally:
+            self._broadcaster.end_all()
 
     async def _validate_mic_properties(self) -> AudioIn.Properties:
         """Fetch mic properties, log them, and raise ValueError if incompatible."""
@@ -776,6 +829,17 @@ class WakeWordFilter(AudioIn, EasyResource):
     async def close(self) -> None:
         # Signal shutdown to prevent new tasks
         self.is_shutting_down = True
+
+        task = self._pipeline_task
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        # Pipeline's finally already signals subscribers; this covers the
+        # case where no pipeline was running.
+        self._broadcaster.end_all()
 
         if hasattr(self, "executor"):
             self.executor.shutdown(wait=True)
