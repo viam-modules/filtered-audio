@@ -122,4 +122,6 @@ class SegmentBroadcaster:
             except asyncio.QueueEmpty:
                 pass
             queue.put_nowait(item)
-            self.logger.warning("broadcast: subscriber queue full; dropped oldest chunk")
+            self.logger.warning(
+                "broadcast: subscriber queue full; dropped oldest chunk"
+            )

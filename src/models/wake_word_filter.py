@@ -189,7 +189,7 @@ class WakeWordFilter(AudioIn, EasyResource):
         instance._pipeline_task = None
         instance._timer_tasks = set()
 
-        #Optional: wakeword miss sensor
+        # Optional: wakeword miss sensor
         miss_sensor_name = str(attrs.get("wakeword_miss_sensor", ""))
         if miss_sensor_name:
             sensor_dep = dependencies[Sensor.get_resource_name(miss_sensor_name)]
@@ -301,7 +301,10 @@ class WakeWordFilter(AudioIn, EasyResource):
             )
         if near_miss_threshold is not None:
             oww_thresh: Any = attrs.get("oww_threshold", DEFAULT_OWW_THRESHOLD)
-            if isinstance(oww_thresh, (int, float)) and near_miss_threshold >= oww_thresh:
+            if (
+                isinstance(oww_thresh, (int, float))
+                and near_miss_threshold >= oww_thresh
+            ):
                 raise ValueError(
                     f"near_miss_threshold ({near_miss_threshold}) must be less than "
                     f"oww_threshold ({oww_thresh})"
@@ -403,7 +406,6 @@ class WakeWordFilter(AudioIn, EasyResource):
             raise ValueError(
                 f"Wake word filter only supports PCM16 codec, got: {codec}"
             )
-
 
         await self._validate_mic_properties()
 
@@ -675,7 +677,11 @@ class WakeWordFilter(AudioIn, EasyResource):
         Gates on max_score BEFORE building the WAV to avoid wasted work on
         the common silence case (max_score ≈ 0.001).
         """
-        if self.miss_sensor is None or self.near_miss_threshold is None or not pcm_bytes:
+        if (
+            self.miss_sensor is None
+            or self.near_miss_threshold is None
+            or not pcm_bytes
+        ):
             return
         if max_score < self.near_miss_threshold or max_score >= self.oww_threshold:
             return

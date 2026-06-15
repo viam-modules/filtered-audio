@@ -14,7 +14,7 @@ import logging
 import pytest
 from unittest.mock import AsyncMock, Mock
 
-from src.models._broadcast import SegmentBroadcaster, _Subscriber, _STREAM_END
+from src.models._broadcast import SegmentBroadcaster
 from src.models.wake_word_filter import WakeWordFilter
 from viam.components.audio_in import AudioResponse as AudioChunk
 

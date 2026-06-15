@@ -15,7 +15,9 @@ from src.models.wakeword_miss_sensor import (
 from viam.errors import NoCaptureToStoreError
 
 
-def make_sensor(uploader=None, max_queue_size=100, dataset_ids=None, part_id="test-part"):
+def make_sensor(
+    uploader=None, max_queue_size=100, dataset_ids=None, part_id="test-part"
+):
     """Construct a WakewordMissSensor wired with a stub uploader, bypassing
     `new()` which reads env vars and contacts Viam app."""
     s = WakewordMissSensor("test-sensor")
@@ -62,9 +64,7 @@ async def test_push_miss_queues_and_dm_get_readings_returns_it():
     upload = AsyncMock(return_value="binid-1")
     s = make_sensor(uploader=upload)
 
-    cap_id, bin_id = await s._push(
-        sample_reading(capture_id="cap-1"), b"RIFFfake"
-    )
+    cap_id, bin_id = await s._push(sample_reading(capture_id="cap-1"), b"RIFFfake")
     assert cap_id == "cap-1"
     assert bin_id == "binid-1"
     upload.assert_awaited_once()
@@ -98,9 +98,7 @@ async def test_push_miss_upload_error_queues_row_with_empty_binary_id():
     upload = AsyncMock(side_effect=RuntimeError("network down"))
     s = make_sensor(uploader=upload)
 
-    cap_id, bin_id = await s._push(
-        sample_reading(capture_id="cap-err"), b"WAV"
-    )
+    cap_id, bin_id = await s._push(sample_reading(capture_id="cap-err"), b"WAV")
     assert cap_id == "cap-err"
     assert bin_id == ""
 
@@ -112,9 +110,7 @@ async def test_push_miss_upload_error_queues_row_with_empty_binary_id():
 @pytest.mark.asyncio
 async def test_push_miss_without_viam_client_still_queues_row():
     s = make_sensor(uploader=None)
-    cap_id, bin_id = await s._push(
-        sample_reading(capture_id="cap-no-upload"), b"WAV"
-    )
+    cap_id, bin_id = await s._push(sample_reading(capture_id="cap-no-upload"), b"WAV")
     assert cap_id == "cap-no-upload"
     assert bin_id == ""
 
@@ -142,9 +138,7 @@ async def test_push_miss_upload_tags_and_metadata():
     upload = AsyncMock(return_value="binid")
     s = make_sensor(uploader=upload, dataset_ids=["ds-1"])
 
-    await s._push(
-        sample_reading(capture_id="cap-tags", wake_word="gambit"), b"WAV"
-    )
+    await s._push(sample_reading(capture_id="cap-tags", wake_word="gambit"), b"WAV")
 
     upload.assert_awaited_once()
     kwargs = upload.await_args.kwargs
@@ -165,9 +159,7 @@ async def test_push_miss_skips_wake_tag_when_word_empty():
     upload = AsyncMock(return_value="binid")
     s = make_sensor(uploader=upload)
 
-    await s._push(
-        sample_reading(capture_id="cap-no-word", wake_word=""), b"WAV"
-    )
+    await s._push(sample_reading(capture_id="cap-no-word", wake_word=""), b"WAV")
 
     kwargs = upload.await_args.kwargs
     assert set(kwargs["tags"]) == {"wakeword_miss", "capture_cap-no-word"}

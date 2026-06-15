@@ -442,7 +442,6 @@ def test_validate_config_accepts_valid_min_speech_ms(mock_env):
     assert not errors
 
 
-
 def test_validate_config_rejects_non_bool_use_grammar(mock_env):
     """Test validate_config raises error when use_grammar is not a boolean"""
     config = Mock()
@@ -1944,7 +1943,9 @@ def test_validate_config_rejects_negative_conversation_timeout(mock_env):
         "wake_words": ["robot"],
         "conversation_timeout_seconds": -1,
     }
-    with pytest.raises(ValueError, match="conversation_timeout_seconds must be non-negative"):
+    with pytest.raises(
+        ValueError, match="conversation_timeout_seconds must be non-negative"
+    ):
         WakeWordFilter.validate_config(config)
 
 
@@ -1956,7 +1957,9 @@ def test_validate_config_rejects_non_number_conversation_timeout(mock_env):
         "wake_words": ["robot"],
         "conversation_timeout_seconds": "ten",
     }
-    with pytest.raises(ValueError, match="conversation_timeout_seconds must be a number"):
+    with pytest.raises(
+        ValueError, match="conversation_timeout_seconds must be a number"
+    ):
         WakeWordFilter.validate_config(config)
 
 
@@ -2201,7 +2204,9 @@ async def test_vosk_conversation_window_bypasses_transcript_check():
         # Should NOT be called in conversation mode — yield a marker so we can
         # detect if it was incorrectly invoked.
         yield make_audio_chunk(960)
-        raise AssertionError("vosk_process_segment should be bypassed in conversation mode")
+        raise AssertionError(
+            "vosk_process_segment should be bypassed in conversation mode"
+        )
 
     with patch(
         "src.models.wake_word_filter.vosk_process_segment",
@@ -2238,5 +2243,6 @@ async def test_streaming_sentinel_refreshes_conversation_window():
     await collect_stream(stream)
 
     import time as time_module
+
     # After a successful segment, the window deadline should be in the future.
     assert wf._conversation_window_expires_at > time_module.monotonic()
