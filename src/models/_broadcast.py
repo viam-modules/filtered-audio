@@ -16,6 +16,7 @@ import logging
 from typing import Any, AsyncGenerator, List
 
 from viam.components.audio_in import AudioResponse as AudioChunk
+
 _SUBSCRIBER_QUEUE_MAXSIZE = 2048
 
 # Queue marker telling a subscriber its stream is over (pipeline ended or
