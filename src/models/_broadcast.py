@@ -16,9 +16,6 @@ import logging
 from typing import Any, AsyncGenerator, List
 
 from viam.components.audio_in import AudioResponse as AudioChunk
-
-# Per-subscriber queue depth. Segments are capped at ~15s of audio upstream,
-# so a healthy consumer never accumulates anywhere near this many chunks.
 _SUBSCRIBER_QUEUE_MAXSIZE = 2048
 
 # Queue marker telling a subscriber its stream is over (pipeline ended or
@@ -28,8 +25,6 @@ _STREAM_END: Any = object()
 
 class _Subscriber:
     """One get_audio caller's view of the shared pipeline output."""
-
-    __slots__ = ("queue", "active")
 
     def __init__(self, active: bool):
         self.queue: asyncio.Queue = asyncio.Queue(maxsize=_SUBSCRIBER_QUEUE_MAXSIZE)
@@ -92,7 +87,7 @@ class SegmentBroadcaster:
         for sub in list(self._subscribers):
             if not sub.active:
                 continue
-            self._put_dropping_oldest(sub.queue, chunk)
+            self._put(sub.queue, chunk)
         if is_sentinel:
             self._segment_open = False
             for sub in self._subscribers:
@@ -104,14 +99,14 @@ class SegmentBroadcaster:
         """Tell every subscriber its stream is over (queues drain first)."""
         self._segment_open = False
         for sub in list(self._subscribers):
-            self._put_dropping_oldest(sub.queue, _STREAM_END)
+            self._put(sub.queue, _STREAM_END)
 
     def end_subscriber(self, sub: _Subscriber) -> None:
         """End one subscriber's stream (its queued chunks drain first)."""
         if sub in self._subscribers:
-            self._put_dropping_oldest(sub.queue, _STREAM_END)
+            self._put(sub.queue, _STREAM_END)
 
-    def _put_dropping_oldest(self, queue: asyncio.Queue, item: Any) -> None:
+    def _put(self, queue: asyncio.Queue, item: Any) -> None:
         try:
             queue.put_nowait(item)
         except asyncio.QueueFull:

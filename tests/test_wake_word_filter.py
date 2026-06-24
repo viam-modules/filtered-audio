@@ -1207,8 +1207,7 @@ def make_oww_filter(threshold=0.5, model_name="okay_gambit"):
     wf._maybe_push_miss = AsyncMock()
     wf.miss_sensor = None
     wf.near_miss_threshold = None
-    # Real multi-client machinery: get_audio subscribes to the broadcaster
-    # and the shared pipeline task does the detection work.
+    # Real broadcaster so get_audio subscribes to the shared pipeline.
     from src.models._broadcast import SegmentBroadcaster
 
     wf._broadcaster = SegmentBroadcaster(wf.logger)
