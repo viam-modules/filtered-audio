@@ -1,22 +1,29 @@
 name: Build Test
 
 on:
+  # gated by the 'safe to test' label (see pr-labeler.yml)
   pull_request_target:
+    types: [ labeled ]
   push:
     branches:
       - main
 
 jobs:
   build:
+    if: github.event_name == 'push' || (github.event.label.name == 'safe to test' && contains(github.event.pull_request.labels.*.name, 'safe to test'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # safe: gated by the 'safe to test' label (pr-labeler.yml)
+          allow-unsafe-pr-checkout: true
       - uses: viamrobotics/build-action@v1
         with:
           version: ""  # Empty = build only, no deploy
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
           key-value: ${{ secrets.VIAM_DEV_API_KEY }}
+          # don't rewrite registry metadata from PRs
+          skip-update: ${{ github.event_name == 'pull_request_target' && 'true' || '' }}
