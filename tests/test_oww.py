@@ -1,8 +1,19 @@
+import collections
+import importlib.metadata
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
-from src.models.oww import setup_oww, oww_check_for_wake_word, OWW_CHUNK_SIZE
+from src.models.oww import (
+    setup_oww,
+    oww_check_for_wake_word,
+    OWW_CHUNK_SIZE,
+    _AudioTail,
+    _buffer_raw_data,
+    _streaming_melspectrogram,
+    _use_audio_tail,
+)
 
 
 class TestSetupOww:
@@ -63,6 +74,17 @@ class TestSetupOww:
         mock_cls.assert_called_once()
         assert mock_cls.call_args[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
         assert mock_cls.call_args[1]["inference_framework"] == "onnx"
+
+    def test_setup_oww_uses_audio_tail(self):
+        """The model's preprocessor gets an _AudioTail."""
+        mock_cls = Mock()
+        with patch("src.models.oww._use_audio_tail") as use_audio_tail:
+            instance, _ = self._call_setup_oww(
+                "/tmp/my_wakeword.onnx", oww_model_cls=mock_cls
+            )
+        use_audio_tail.assert_called_once_with(
+            mock_cls.return_value.preprocessor, instance.logger
+        )
 
     def test_setup_oww_derives_model_name(self):
         """Path /tmp/my_wakeword.onnx -> oww_model_name == 'my_wakeword'."""
@@ -359,3 +381,127 @@ class TestOwwCheckForWakeWord:
         assert isinstance(audio_array, np.ndarray)
         assert audio_array.dtype == np.int16
         assert len(audio_array) == OWW_CHUNK_SIZE // 2
+
+
+class TestAudioTail:
+    """_AudioTail against the deque(maxlen=...) it stands in for"""
+
+    def test_matches_deque(self):
+        rng = np.random.default_rng(0)
+        expected = collections.deque(maxlen=100)
+        tail = _AudioTail(100)
+        for size in [0, 30, 100, 250, 1, 99, 40] + list(rng.integers(0, 130, 300)):
+            samples = rng.integers(-32768, 32767, size, dtype=np.int16)
+            expected.extend(samples.tolist())
+            tail.extend(samples)
+            assert len(tail) == len(expected)
+            for n in (1, 7, 64, 100, 150):
+                got = tail.tail(n)
+                assert got.dtype == np.int16
+                assert got.tolist() == list(expected)[-n:]
+
+    def test_clear(self):
+        tail = _AudioTail(10)
+        tail.extend(np.arange(25, dtype=np.int16))
+        tail.clear()
+        assert len(tail) == 0
+        assert tail.tail(5).tolist() == []
+        tail.extend(np.arange(3, dtype=np.int16))
+        assert tail.tail(5).tolist() == [0, 1, 2]
+
+
+class TestUseAudioTail:
+    """openwakeword with an _AudioTail against openwakeword's own deque"""
+
+    def _features(self, utils):
+        # An AudioFeatures without its ONNX models. The stand-ins record the
+        # audio _get_melspectrogram feeds the melspectrogram model, and turn
+        # each window of the melspectrogram buffer into a feature row.
+        f = utils.AudioFeatures.__new__(utils.AudioFeatures)
+        f.raw_data_buffer = collections.deque(maxlen=16000 * 10)
+        f.melspectrogram_buffer = np.ones((76, 32))
+        f.melspectrogram_max_len = 10 * 97
+        f.accumulated_samples = 0
+        f.raw_data_remainder = np.empty(0)
+        f.feature_buffer = np.zeros((1, 32), dtype=np.float32)
+        f.feature_buffer_max_len = 120
+        f.seen = []
+
+        def melspec_model_predict(x):
+            f.seen.append(x.copy())
+            frames = x.shape[1] // 160 - 3
+            return [np.tile(x[0, :frames, None], (1, 32))[None, None]]
+
+        f.melspec_model_predict = melspec_model_predict
+        f.embedding_model_predict = lambda x: x[0, -1, :, 0][None, :]
+        return f
+
+    def test_matches_openwakeword(self):
+        """Same audio in and same buffers out, for 80 ms chunks and other
+        sizes, before and after the 10 s buffer fills."""
+        utils = pytest.importorskip("openwakeword.utils")
+        rng = np.random.default_rng(0)
+        original, tail = self._features(utils), self._features(utils)
+        with patch("src.models.oww.importlib.metadata.version", lambda _: "0.6.0"):
+            _use_audio_tail(tail, Mock())
+        assert isinstance(tail.raw_data_buffer, _AudioTail)
+        sizes = [1280] * 150 + [480, 1280, 3000, 160, 2560, 1000] * 50
+        for size in sizes:  # about 26 s of audio
+            chunk = rng.integers(-32768, 32767, size, dtype=np.int16)
+            assert tail._streaming_features(chunk) == original._streaming_features(
+                chunk
+            )
+        assert len(tail.raw_data_buffer) == tail.raw_data_buffer.maxlen
+        assert len(tail.seen) == len(original.seen)
+        for got, expected in zip(tail.seen, original.seen):
+            assert got.dtype == expected.dtype
+            np.testing.assert_array_equal(got, expected)
+        for name in ("melspectrogram_buffer", "feature_buffer", "raw_data_remainder"):
+            assert getattr(tail, name).dtype == getattr(original, name).dtype
+            np.testing.assert_array_equal(getattr(tail, name), getattr(original, name))
+        assert tail.accumulated_samples == original.accumulated_samples
+
+    @pytest.mark.parametrize(
+        "version, swapped", [("0.6.0", True), ("0.7.0", False), (None, False)]
+    )
+    def test_only_on_matching_version(self, version, swapped):
+        """Only openwakeword 0.6.0 gets an _AudioTail, which keeps any audio
+        already buffered."""
+        preprocessor = Mock()
+        preprocessor.raw_data_buffer = collections.deque([1, 2, 3], maxlen=16000 * 10)
+        original_buffer = preprocessor.raw_data_buffer
+        original_methods = (
+            preprocessor._buffer_raw_data,
+            preprocessor._streaming_melspectrogram,
+        )
+
+        def fake_version(name):
+            if version is None:
+                raise importlib.metadata.PackageNotFoundError(name)
+            return version
+
+        with patch("src.models.oww.importlib.metadata.version", fake_version):
+            _use_audio_tail(preprocessor, Mock())
+        if swapped:
+            assert isinstance(preprocessor.raw_data_buffer, _AudioTail)
+            assert preprocessor.raw_data_buffer.maxlen == 16000 * 10
+            assert preprocessor.raw_data_buffer.tail(10).tolist() == [1, 2, 3]
+            assert preprocessor._buffer_raw_data.__func__ is _buffer_raw_data
+            assert (
+                preprocessor._streaming_melspectrogram.__func__
+                is _streaming_melspectrogram
+            )
+        else:
+            assert preprocessor.raw_data_buffer is original_buffer
+            assert (
+                preprocessor._buffer_raw_data,
+                preprocessor._streaming_melspectrogram,
+            ) == original_methods
+
+    def test_only_replaces_a_deque(self):
+        """A raw-audio buffer that isn't a deque is left alone."""
+        preprocessor = Mock()
+        buffer = preprocessor.raw_data_buffer
+        with patch("src.models.oww.importlib.metadata.version", lambda _: "0.6.0"):
+            _use_audio_tail(preprocessor, Mock())
+        assert preprocessor.raw_data_buffer is buffer
