@@ -1,5 +1,6 @@
 """OpenWakeWord setup utilities."""
 
+import collections
 import logging
 import os
 import pathlib
@@ -17,6 +18,10 @@ from .download import download_file
 
 # OWW inference chunks: 16kHz * 0.080s = 1280 samples * 2 bytes = 2560 bytes
 OWW_CHUNK_SIZE = 2560
+
+# openwakeword copies its whole raw-audio deque every chunk but reads only the newest
+# chunk + 480 samples; 1 s holds that for chunks up to 960 ms.
+OWW_RAW_AUDIO_SAMPLES = 16000
 
 
 def _ensure_preprocessing_models(
@@ -93,6 +98,9 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
         enable_speex_noise_suppression=(
             sys.platform == "linux"
         ),  # not supported on mac
+    )
+    instance.oww_model.preprocessor.raw_data_buffer = collections.deque(
+        maxlen=OWW_RAW_AUDIO_SAMPLES
     )
     instance.logger.debug("OWW model loaded")
 
