@@ -1,8 +1,16 @@
+import collections
+import importlib.metadata
+
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 import numpy as np
 
-from src.models.oww import setup_oww, oww_check_for_wake_word, OWW_CHUNK_SIZE
+from src.models.oww import (
+    setup_oww,
+    oww_check_for_wake_word,
+    OWW_CHUNK_SIZE,
+    OWW_RAW_AUDIO_SAMPLES,
+)
 
 
 class TestSetupOww:
@@ -63,6 +71,22 @@ class TestSetupOww:
         mock_cls.assert_called_once()
         assert mock_cls.call_args[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
         assert mock_cls.call_args[1]["inference_framework"] == "onnx"
+
+    def test_setup_oww_keeps_1s_of_raw_audio(self):
+        """The preprocessor keeps 1 s of raw audio instead of openwakeword's 10 s."""
+        mock_cls = Mock()
+        self._call_setup_oww("/tmp/my_wakeword.onnx", oww_model_cls=mock_cls)
+        buffer = mock_cls.return_value.preprocessor.raw_data_buffer
+        assert isinstance(buffer, collections.deque)
+        assert buffer.maxlen == OWW_RAW_AUDIO_SAMPLES
+
+    def test_installed_openwakeword_matches_raw_audio_buffer(self):
+        """OWW_RAW_AUDIO_SAMPLES assumes openwakeword 0.6.0's AudioFeatures."""
+        pytest.importorskip("openwakeword")
+        assert importlib.metadata.version("openwakeword") == "0.6.0", (
+            "check that AudioFeatures still reads only the newest n_samples + 480 "
+            "raw samples, then update this version"
+        )
 
     def test_setup_oww_derives_model_name(self):
         """Path /tmp/my_wakeword.onnx -> oww_model_name == 'my_wakeword'."""
