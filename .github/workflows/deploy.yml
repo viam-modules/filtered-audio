@@ -4,12 +4,17 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: viamrobotics/build-action@v1
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # viamrobotics/build-action@v1.7.4
+      - uses: viamrobotics/build-action@76223a61df515ed39aed8836611e71e868c06d66
         with:
           version: ${{ github.ref_name }}
           ref: ${{ github.sha }}

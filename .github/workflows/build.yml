@@ -1,29 +1,62 @@
 name: Build Test
 
 on:
-  # gated by the 'safe to test' label (see pr-labeler.yml)
-  pull_request_target:
-    types: [ labeled ]
+  pull_request:
   push:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
-  build:
-    if: github.event_name == 'push' || (github.event.label.name == 'safe to test' && contains(github.event.pull_request.labels.*.name, 'safe to test'))
+  make-build-linux:
+    if: github.event_name == 'pull_request'
+    name: make build (linux/${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    # the image the cloud builder uses for linux builds
+    container: ghcr.io/viamrobotics/cloud-build-base:${{ matrix.arch }}-focal
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: make build
+
+  make-build-darwin:
+    if: github.event_name == 'pull_request'
+    name: make build (darwin/arm64)
+    runs-on: macos-15
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # actions/setup-python@v7.0.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          # the cloud builder's macOS image ships Python 3.13
+          python-version: "3.13"
+      - run: make build
+
+  cloud-build:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          # safe: gated by the 'safe to test' label (pr-labeler.yml)
-          allow-unsafe-pr-checkout: true
-      - uses: viamrobotics/build-action@v1
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # viamrobotics/build-action@v1.7.4
+      - uses: viamrobotics/build-action@76223a61df515ed39aed8836611e71e868c06d66
         with:
           version: ""  # Empty = build only, no deploy
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.sha }}
           key-id: ${{ secrets.VIAM_DEV_API_KEY_ID }}
           key-value: ${{ secrets.VIAM_DEV_API_KEY }}
-          # don't rewrite registry metadata from PRs
-          skip-update: ${{ github.event_name == 'pull_request_target' && 'true' || '' }}
