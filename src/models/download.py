@@ -22,13 +22,12 @@ def download_file(url: str, dest_path: str, logger=None) -> str:
 
     ssl_context = ssl.create_default_context(cafile=certifi.where())
     try:
-        with urllib.request.urlopen(url, context=ssl_context, timeout=120) as resp:
-            with open(dest_path, "wb") as f:
-                while True:
-                    chunk = resp.read(8192)
-                    if not chunk:
-                        break
-                    f.write(chunk)
+        with urllib.request.urlopen(url, context=ssl_context, timeout=120) as resp, open(dest_path, "wb") as f:
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                f.write(chunk)
     except Exception:
         if os.path.exists(dest_path):
             os.remove(dest_path)

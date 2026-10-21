@@ -10,10 +10,9 @@ and the pipeline lifecycle.
 
 import asyncio
 import logging
-
-import pytest
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from src.models._broadcast import SegmentBroadcaster
 from src.models.wake_word_filter import WakeWordFilter
 from viam.components.audio_in import AudioResponse as AudioChunk
