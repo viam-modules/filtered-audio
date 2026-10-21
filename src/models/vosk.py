@@ -6,16 +6,17 @@ import os
 import re
 import sys
 import tempfile
-from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
 import zipfile
+from collections.abc import AsyncGenerator
+from pathlib import Path
+from typing import Any
 
-from vosk import Model as VoskModel, KaldiRecognizer
 from viam.components.audio_in import AudioResponse as AudioChunk
+from vosk import KaldiRecognizer
+from vosk import Model as VoskModel
 
 from .download import download_file
 from .fuzzy_matcher import FuzzyWakeWordMatcher
-
 
 BASE_VOSK_URL = "https://alphacephei.com/vosk/models"
 DEFAULT_VOSK_MODEL = "vosk-model-small-en-us-0.15"
@@ -176,7 +177,7 @@ def setup_vosk(
     vosk_model: str = DEFAULT_VOSK_MODEL,
     use_grammar: bool = True,
     grammar_confidence: float = DEFAULT_GRAMMAR_CONFIDENCE,
-    fuzzy_threshold: Optional[int] = None,
+    fuzzy_threshold: int | None = None,
 ) -> None:
     """
     Set up Vosk detection engine on a WakeWordFilter instance.
@@ -192,16 +193,12 @@ def setup_vosk(
     instance.use_grammar = use_grammar
     instance.grammar_confidence = grammar_confidence
     instance.logger.info(f"Vosk grammar mode: {instance.use_grammar}")
-    instance.logger.info(
-        f"Vosk grammar confidence threshold: {instance.grammar_confidence:.2f}"
-    )
+    instance.logger.info(f"Vosk grammar confidence threshold: {instance.grammar_confidence:.2f}")
 
     # Create recognizer
     if instance.use_grammar and instance.wake_words:
         grammar = json.dumps(instance.wake_words)
-        instance.recognizer = KaldiRecognizer(
-            instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar
-        )
+        instance.recognizer = KaldiRecognizer(instance.vosk_model, AUDIO_SAMPLE_RATE_HZ, grammar)
     else:
         instance.recognizer = KaldiRecognizer(instance.vosk_model, AUDIO_SAMPLE_RATE_HZ)
 
@@ -274,9 +271,7 @@ def vosk_check_for_wake_word(instance: Any, audio_bytes: bytes) -> bool:
         return False
 
 
-async def vosk_process_segment(
-    instance: Any, speech_chunk_buffer: list, speech_buffer: bytearray
-) -> AsyncGenerator:
+async def vosk_process_segment(instance: Any, speech_chunk_buffer: list, speech_buffer: bytearray) -> AsyncGenerator:
     """Run Vosk wake word inference on a complete buffered speech segment."""
     if not speech_chunk_buffer:
         return

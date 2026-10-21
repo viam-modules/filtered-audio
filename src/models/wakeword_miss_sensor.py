@@ -22,18 +22,13 @@ import base64
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
 from typing import (
     Any,
     ClassVar,
-    List,
-    Mapping,
-    Optional,
-    Sequence,
-    Tuple,
+    Self,
 )
-
-from typing_extensions import Self
 
 from viam.app.viam_client import ViamClient
 from viam.components.sensor import Sensor
@@ -45,7 +40,6 @@ from viam.resource.base import ResourceBase
 from viam.resource.easy_resource import EasyResource
 from viam.resource.types import Model, ModelFamily
 from viam.utils import from_dm_from_extra, struct_to_dict
-
 
 AUDIO_SAMPLE_RATE_HZ = 16000
 
@@ -61,19 +55,17 @@ _DEFAULT_MAX_QUEUE_SIZE = 1000
 class WakewordMissSensor(Sensor, EasyResource):
     """Queue-backed sensor for OWW near-miss captures."""
 
-    MODEL: ClassVar[Model] = Model(
-        ModelFamily("viam", "filtered-audio"), "wakeword-miss-sensor"
-    )
+    MODEL: ClassVar[Model] = Model(ModelFamily("viam", "filtered-audio"), "wakeword-miss-sensor")
 
     # Configured at construct time.
     logger: logging.Logger
-    dataset_ids: List[str]
-    component_name_override: Optional[str]
+    dataset_ids: list[str]
+    component_name_override: str | None
     max_queue_size: int
 
     # Runtime state.
-    _pending: List[Mapping[str, Any]]
-    _viam_client: Optional[ViamClient]
+    _pending: list[Mapping[str, Any]]
+    _viam_client: ViamClient | None
     _part_id: str
 
     @classmethod
@@ -104,14 +96,10 @@ class WakewordMissSensor(Sensor, EasyResource):
         return instance
 
     @classmethod
-    def validate_config(
-        cls, config: ComponentConfig
-    ) -> Tuple[Sequence[str], Sequence[str]]:
+    def validate_config(cls, config: ComponentConfig) -> tuple[Sequence[str], Sequence[str]]:
         attrs = struct_to_dict(config.attributes)
         ds = attrs.get("dataset_ids", None)
-        if ds is not None and not (
-            isinstance(ds, list) and all(isinstance(x, str) for x in ds)
-        ):
+        if ds is not None and not (isinstance(ds, list) and all(isinstance(x, str) for x in ds)):
             raise ValueError("dataset_ids must be a list of strings")
         mqs = attrs.get("max_queue_size", None)
         if mqs is not None:
@@ -121,20 +109,17 @@ class WakewordMissSensor(Sensor, EasyResource):
                 raise ValueError("max_queue_size must be positive")
         return [], []
 
-    async def _ensure_viam_client(self) -> Optional[ViamClient]:
+    async def _ensure_viam_client(self) -> ViamClient | None:
         if self._viam_client is not None:
             return self._viam_client
         if not self._part_id:
             return None
         try:
             self._viam_client = await ViamClient.create_from_env_vars()
-            self.logger.info(
-                "ready with binary uploads enabled (part_id=%s)", self._part_id
-            )
+            self.logger.info("ready with binary uploads enabled (part_id=%s)", self._part_id)
         except Exception as e:
             self.logger.warning(
-                "Viam app client unavailable (%s) — binary uploads disabled, "
-                "tabular queue still works",
+                "Viam app client unavailable (%s) — binary uploads disabled, tabular queue still works",
                 e,
             )
             self._viam_client = None
@@ -143,8 +128,8 @@ class WakewordMissSensor(Sensor, EasyResource):
     async def get_readings(
         self,
         *,
-        extra: Optional[Mapping[str, Any]] = None,
-        timeout: Optional[float] = None,
+        extra: Mapping[str, Any] | None = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> Mapping[str, Any]:
         from_dm = from_dm_from_extra(extra)
@@ -165,7 +150,7 @@ class WakewordMissSensor(Sensor, EasyResource):
         self,
         command: Mapping[str, Any],
         *,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> Mapping[str, Any]:
         name = command.get("command", "")
@@ -182,7 +167,7 @@ class WakewordMissSensor(Sensor, EasyResource):
         self,
         reading: Mapping[str, Any],
         wav_bytes: bytes,
-    ) -> Tuple[str, str]:
+    ) -> tuple[str, str]:
         bin_id = ""
         capture_id = str(reading.get("capture_id") or "")
         if not capture_id:
@@ -200,7 +185,7 @@ class WakewordMissSensor(Sensor, EasyResource):
 
             component_name = self.component_name_override or self.name
             try:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 bin_id = await client.data_client.binary_data_capture_upload(
                     binary_data=wav_bytes,
                     part_id=self._part_id,
@@ -213,9 +198,7 @@ class WakewordMissSensor(Sensor, EasyResource):
                     data_request_times=(now, now),
                 )
             except Exception as e:
-                self.logger.warning(
-                    "binary upload failed for capture_id=%s: %s", capture_id, e
-                )
+                self.logger.warning("binary upload failed for capture_id=%s: %s", capture_id, e)
                 bin_id = ""
 
         row = {
@@ -227,7 +210,7 @@ class WakewordMissSensor(Sensor, EasyResource):
             "oww_model_path": str(reading.get("oww_model_path") or ""),
             "audio_bytes": int(reading.get("audio_bytes", 0)),
             "duration_ms": float(reading.get("duration_ms", 0.0)),
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
         }
 
         self._pending.append(row)
@@ -240,9 +223,7 @@ class WakewordMissSensor(Sensor, EasyResource):
                 self.max_queue_size,
                 over,
             )
-        self.logger.debug(
-            "queued reading (capture_id=%s, depth=%d)", capture_id, len(self._pending)
-        )
+        self.logger.debug("queued reading (capture_id=%s, depth=%d)", capture_id, len(self._pending))
         return capture_id, bin_id
 
     async def close(self):

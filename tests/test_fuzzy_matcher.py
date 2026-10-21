@@ -48,9 +48,7 @@ class TestFuzzyWakeWordMatcher:
         assert ret["distance"] == 0
         ret = matcher.match("robut turn on", "robot")
         assert ret["distance"] == 1
-        assert (
-            matcher.match("robert turn on", "robot") is None
-        )  # distance 2 - too different
+        assert matcher.match("robert turn on", "robot") is None  # distance 2 - too different
 
     def test_threshold_0_exact_only(self):
         """Test threshold 0 only allows exact matches."""

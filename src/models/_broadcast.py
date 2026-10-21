@@ -13,7 +13,8 @@ locking is needed.
 
 import asyncio
 import logging
-from typing import Any, AsyncGenerator, List
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from viam.components.audio_in import AudioResponse as AudioChunk
 
@@ -40,7 +41,7 @@ class SegmentBroadcaster:
 
     def __init__(self, logger: logging.Logger):
         self.logger = logger
-        self._subscribers: List[_Subscriber] = []
+        self._subscribers: list[_Subscriber] = []
         self._segment_open = False
 
     @property
@@ -118,6 +119,4 @@ class SegmentBroadcaster:
             except asyncio.QueueEmpty:
                 pass
             queue.put_nowait(item)
-            self.logger.warning(
-                "broadcast: subscriber queue full; dropped oldest chunk"
-            )
+            self.logger.warning("broadcast: subscriber queue full; dropped oldest chunk")

@@ -19,13 +19,9 @@ from .download import download_file
 OWW_CHUNK_SIZE = 2560
 
 
-def _ensure_preprocessing_models(
-    openwakeword: types.ModuleType, models_dir: str, logger: logging.Logger
-) -> None:
+def _ensure_preprocessing_models(openwakeword: types.ModuleType, models_dir: str, logger: logging.Logger) -> None:
     os.makedirs(models_dir, exist_ok=True)
-    for m in list(openwakeword.FEATURE_MODELS.values()) + list(
-        openwakeword.VAD_MODELS.values()
-    ):
+    for m in list(openwakeword.FEATURE_MODELS.values()) + list(openwakeword.VAD_MODELS.values()):
         url = m["download_url"].replace(".tflite", ".onnx")
         fname = url.split("/")[-1]
         if not os.path.exists(os.path.join(models_dir, fname)):
@@ -90,16 +86,12 @@ def setup_oww(instance: Any, oww_model_path: str, oww_threshold: float) -> None:
     instance.oww_model = OWWModel(
         wakeword_models=[oww_model_path],
         inference_framework="onnx",
-        enable_speex_noise_suppression=(
-            sys.platform == "linux"
-        ),  # not supported on mac
+        enable_speex_noise_suppression=(sys.platform == "linux"),  # not supported on mac
     )
     instance.logger.debug("OWW model loaded")
 
     instance.oww_model_name = os.path.splitext(os.path.basename(oww_model_path))[0]
-    instance.logger.info(
-        f"openWakeWord model loaded (threshold={instance.oww_threshold})"
-    )
+    instance.logger.info(f"openWakeWord model loaded (threshold={instance.oww_threshold})")
 
 
 def oww_check_for_wake_word(instance: Any, oww_audio_buffer: bytearray) -> bool:

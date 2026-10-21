@@ -31,8 +31,7 @@ def get_speech_audio(text: str) -> bytes:
 
     if not audio_file.exists():
         raise FileNotFoundError(
-            f"No pre-generated audio for {text!r}. "
-            f"Run 'python tests/fixtures/generate_audio.py' to generate it. "
+            f"No pre-generated audio for {text!r}. Run 'python tests/fixtures/generate_audio.py' to generate it. "
         )
 
     return audio_file.read_bytes()

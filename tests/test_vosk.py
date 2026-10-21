@@ -1,16 +1,17 @@
 import json
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 from src.models.vosk import (
+    DEFAULT_VOSK_MODEL,
+    _extract_vosk_model,
+    _get_bundled_models_dir,
+    _resolve_absolute_path,
+    _resolve_model_name,
     get_vosk_model,
     setup_vosk,
     vosk_check_for_wake_word,
     vosk_process_segment,
-    DEFAULT_VOSK_MODEL,
-    _get_bundled_models_dir,
-    _extract_vosk_model,
-    _resolve_absolute_path,
-    _resolve_model_name,
 )
 
 
@@ -204,9 +205,7 @@ class TestExtractVoskModel:
         ):
             _extract_vosk_model(zip_path, logger)
 
-        mock_zipfile.__enter__.return_value.extractall.assert_called_once_with(
-            "/tmp/module-data"
-        )
+        mock_zipfile.__enter__.return_value.extractall.assert_called_once_with("/tmp/module-data")
         logger.info.assert_any_call(f"Extracting model from {zip_path}...")
 
     def test_raises_error_on_extraction_failure(self):
@@ -225,9 +224,7 @@ class TestExtractVoskModel:
                 "src.models.vosk.os.path.join",
                 return_value="/tmp/module-data/vosk-model-en-us-0.22",
             ),
-            patch(
-                "src.models.vosk.zipfile.ZipFile", side_effect=Exception("Zip error")
-            ),
+            patch("src.models.vosk.zipfile.ZipFile", side_effect=Exception("Zip error")),
             pytest.raises(RuntimeError, match="Failed to extract"),
         ):
             _extract_vosk_model(zip_path, logger)
@@ -246,9 +243,7 @@ class TestSetupVosk:
         """Run setup_vosk with mocked Vosk deps. Returns instance with _mock_get, _mock_vosk_model, _mock_recognizer attached."""
         instance = self._make_instance(wake_words=wake_words)
         with (
-            patch(
-                "src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model"
-            ) as mock_get,
+            patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model") as mock_get,
             patch("src.models.vosk.VoskModel") as mock_vosk_model,
             patch("src.models.vosk.KaldiRecognizer") as mock_recognizer,
         ):
@@ -273,15 +268,11 @@ class TestSetupVosk:
     def test_setup_vosk_custom_vosk_model_name(self):
         """Custom vosk_model passed to get_vosk_model."""
         instance = self._call_setup_vosk(vosk_model="vosk-model-en-us-0.22")
-        instance._mock_get.assert_called_once_with(
-            "vosk-model-en-us-0.22", instance.logger
-        )
+        instance._mock_get.assert_called_once_with("vosk-model-en-us-0.22", instance.logger)
 
     def test_setup_vosk_creates_grammar_recognizer(self):
         """use_grammar=True + wake_words -> KaldiRecognizer called with grammar JSON."""
-        instance = self._call_setup_vosk(
-            wake_words=["robot", "computer"], use_grammar=True
-        )
+        instance = self._call_setup_vosk(wake_words=["robot", "computer"], use_grammar=True)
         args = instance._mock_recognizer.call_args[0]
         assert args[0] == instance._mock_vosk_model.return_value
         assert args[1] == 16000
@@ -311,9 +302,7 @@ class TestSetupVosk:
     @patch("src.models.vosk.KaldiRecognizer")
     @patch("src.models.vosk.VoskModel")
     @patch("src.models.vosk.get_vosk_model", return_value="/tmp/vosk-model")
-    def test_setup_vosk_enables_fuzzy_matcher(
-        self, mock_get, mock_vosk_model, mock_recognizer, mock_fuzzy
-    ):
+    def test_setup_vosk_enables_fuzzy_matcher(self, mock_get, mock_vosk_model, mock_recognizer, mock_fuzzy):
         """fuzzy_threshold=3 -> FuzzyWakeWordMatcher(threshold=3) stored on instance."""
         instance = self._make_instance()
         setup_vosk(instance, fuzzy_threshold=3)
@@ -355,9 +344,7 @@ class TestVoskCheckForWakeWord:
 
     def test_handles_multiple_wake_words(self):
         """Test check_for_wake_word works with multiple wake words"""
-        wake_word_filter, mock_rec = self._make_instance(
-            wake_words=["robot", "computer", "hey assistant"]
-        )
+        wake_word_filter, mock_rec = self._make_instance(wake_words=["robot", "computer", "hey assistant"])
 
         mock_rec.FinalResult.return_value = '{"text": "robot do something"}'
         assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
@@ -380,9 +367,7 @@ class TestVoskCheckForWakeWord:
 
     def test_with_grammar_mode(self):
         """Test check_for_wake_word works in grammar mode"""
-        wake_word_filter, mock_rec = self._make_instance(
-            wake_words=["robot", "computer"], use_grammar=True
-        )
+        wake_word_filter, mock_rec = self._make_instance(wake_words=["robot", "computer"], use_grammar=True)
         mock_rec.FinalResult.return_value = '{"text": "robot"}'
         assert vosk_check_for_wake_word(wake_word_filter, b"\x00" * 1000) is True
 
@@ -438,15 +423,11 @@ class TestVoskProcessSegment:
         """Test returns early if shutting down"""
         wake_word_filter = self._make_instance(shutting_down=True)
         chunks = []
-        async for chunk in vosk_process_segment(
-            wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)
-        ):
+        async for chunk in vosk_process_segment(wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)):
             chunks.append(chunk)
 
         assert len(chunks) == 0
-        wake_word_filter.logger.debug.assert_called_with(
-            "Skipping speech processing due to shutdown"
-        )
+        wake_word_filter.logger.debug.assert_called_with("Skipping speech processing due to shutdown")
 
     @pytest.mark.asyncio
     async def test_handles_executor_shutdown_error(self):
@@ -459,15 +440,11 @@ class TestVoskProcessSegment:
         with patch("asyncio.get_running_loop") as mock_loop:
             mock_loop.return_value.run_in_executor = mock_run_in_executor
             chunks = []
-            async for chunk in vosk_process_segment(
-                wake_word_filter, [Mock()], bytearray(b"\x00" * 1000)
-            ):
+            async for chunk in vosk_process_segment(wake_word_filter, [Mock()], bytearray(b"\x00" * 1000)):
                 chunks.append(chunk)
 
             assert len(chunks) == 0
-            wake_word_filter.logger.debug.assert_called_with(
-                "Executor shutdown during processing, ignoring"
-            )
+            wake_word_filter.logger.debug.assert_called_with("Executor shutdown during processing, ignoring")
 
     @pytest.mark.asyncio
     async def test_yields_chunks_on_wake_word(self):
@@ -517,9 +494,7 @@ class TestVoskProcessSegment:
                 mock_audio_chunk_class.return_value = empty_chunk
 
                 chunks = []
-                async for chunk in vosk_process_segment(
-                    wake_word_filter, [mock_chunk], bytearray(b"\x00" * 1000)
-                ):
+                async for chunk in vosk_process_segment(wake_word_filter, [mock_chunk], bytearray(b"\x00" * 1000)):
                     chunks.append(chunk)
 
                 assert len(chunks) == 2
@@ -537,9 +512,7 @@ class TestVoskProcessSegment:
         with patch("asyncio.get_running_loop") as mock_loop:
             mock_loop.return_value.run_in_executor = mock_run_in_executor
             chunks = []
-            async for chunk in vosk_process_segment(
-                wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)
-            ):
+            async for chunk in vosk_process_segment(wake_word_filter, [Mock(), Mock()], bytearray(b"\x00" * 1000)):
                 chunks.append(chunk)
 
             assert len(chunks) == 0
