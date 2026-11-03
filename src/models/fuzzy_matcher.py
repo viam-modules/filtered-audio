@@ -7,7 +7,6 @@ trigger phrases even when they are transcribed with slight variations
 """
 
 import re
-from typing import Optional
 
 from rapidfuzz.distance import Levenshtein
 
@@ -40,7 +39,7 @@ class FuzzyWakeWordMatcher:
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
-    def match(self, transcript: str, wake_word: str) -> Optional[dict]:
+    def match(self, transcript: str, wake_word: str) -> dict | None:
         """Check if wake word matches and return match details.
 
         Args:

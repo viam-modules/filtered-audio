@@ -10,8 +10,10 @@ Usage:
 
 import io
 from pathlib import Path
+
 from gtts import gTTS
 from pydub import AudioSegment
+
 from tests.fixtures.speech_audio import _get_filename
 
 # Phrases used in integration tests

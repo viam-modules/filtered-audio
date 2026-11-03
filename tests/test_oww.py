@@ -1,8 +1,8 @@
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import numpy as np
+from unittest.mock import MagicMock, Mock, patch
 
-from src.models.oww import setup_oww, oww_check_for_wake_word, OWW_CHUNK_SIZE
+import numpy as np
+import pytest
+from src.models.oww import OWW_CHUNK_SIZE, oww_check_for_wake_word, setup_oww
 
 
 class TestSetupOww:
@@ -17,20 +17,12 @@ class TestSetupOww:
         """Create mock openwakeword module with FEATURE_MODELS and VAD_MODELS."""
         mock_oww = MagicMock()
         mock_oww.__file__ = "/fake/openwakeword/__init__.py"
-        mock_oww.FEATURE_MODELS = {
-            "melspectrogram": {
-                "download_url": "https://example.com/melspectrogram.tflite"
-            }
-        }
-        mock_oww.VAD_MODELS = {
-            "silero_vad": {"download_url": "https://example.com/silero_vad.tflite"}
-        }
+        mock_oww.FEATURE_MODELS = {"melspectrogram": {"download_url": "https://example.com/melspectrogram.tflite"}}
+        mock_oww.VAD_MODELS = {"silero_vad": {"download_url": "https://example.com/silero_vad.tflite"}}
         mock_oww.utils = Mock()
         return mock_oww
 
-    def _call_setup_oww(
-        self, model_path, platform="linux", oww_model_cls=None, threshold=0.5
-    ):
+    def _call_setup_oww(self, model_path, platform="linux", oww_model_cls=None, threshold=0.5):
         """Run setup_oww with mocked openwakeword and sys.platform. Returns (instance, oww_model_cls)."""
         instance = self._make_instance()
         mock_oww = self._mock_openwakeword()
@@ -56,9 +48,7 @@ class TestSetupOww:
     def test_setup_oww_loads_local_model(self):
         """Local .onnx path exists -> OWWModel created with correct args."""
         mock_cls = Mock()
-        instance, oww_model_cls = self._call_setup_oww(
-            "/tmp/my_wakeword.onnx", oww_model_cls=mock_cls
-        )
+        instance, oww_model_cls = self._call_setup_oww("/tmp/my_wakeword.onnx", oww_model_cls=mock_cls)
         assert instance.oww_model == mock_cls.return_value
         mock_cls.assert_called_once()
         assert mock_cls.call_args[1]["wakeword_models"] == ["/tmp/my_wakeword.onnx"]
@@ -171,9 +161,7 @@ class TestSetupOww:
             ),
             pytest.raises(ValueError, match="oww_model_path does not exist"),
         ):
-            setup_oww(
-                instance, oww_model_path="/nonexistent/model.onnx", oww_threshold=0.5
-            )
+            setup_oww(instance, oww_model_path="/nonexistent/model.onnx", oww_threshold=0.5)
 
     @patch("src.models.oww.os.makedirs")
     def test_setup_oww_downloads_preprocessing_models(self, mock_makedirs):
@@ -228,15 +216,11 @@ class TestSetupOww:
     def test_setup_oww_speex_linux_only(self):
         """enable_speex_noise_suppression matches sys.platform == 'linux'."""
         mock_cls = Mock()
-        self._call_setup_oww(
-            "/tmp/model.onnx", platform="linux", oww_model_cls=mock_cls
-        )
+        self._call_setup_oww("/tmp/model.onnx", platform="linux", oww_model_cls=mock_cls)
         assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is True
 
         mock_cls.reset_mock()
-        self._call_setup_oww(
-            "/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls
-        )
+        self._call_setup_oww("/tmp/model.onnx", platform="darwin", oww_model_cls=mock_cls)
         assert mock_cls.call_args[1]["enable_speex_noise_suppression"] is False
 
 

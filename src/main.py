@@ -1,4 +1,5 @@
 import asyncio
+
 from viam.module.module import Module
 
 try:

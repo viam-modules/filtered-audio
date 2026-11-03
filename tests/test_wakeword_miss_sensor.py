@@ -4,20 +4,17 @@ import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-
 from src.models.wakeword_miss_sensor import (
-    WakewordMissSensor,
     _DEFAULT_MAX_QUEUE_SIZE,
     _UPLOAD_COMPONENT_TYPE,
     _UPLOAD_FILE_EXT,
     _UPLOAD_METHOD_NAME,
+    WakewordMissSensor,
 )
 from viam.errors import NoCaptureToStoreError
 
 
-def make_sensor(
-    uploader=None, max_queue_size=100, dataset_ids=None, part_id="test-part"
-):
+def make_sensor(uploader=None, max_queue_size=100, dataset_ids=None, part_id="test-part"):
     """Construct a WakewordMissSensor wired with a stub uploader, bypassing
     `new()` which reads env vars and contacts Viam app."""
     s = WakewordMissSensor("test-sensor")
